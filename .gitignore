@@ -1,0 +1,8 @@
+# 저장소 루트 — git 초기화 시 시크릿 누락 방지
+**/node_modules
+**/.next
+**/out
+**/.env.local
+**/.env*.local
+.env
+!**/.env.example
