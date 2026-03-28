@@ -20,15 +20,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import {
-  SENSOR_SORT_OPTIONS,
-  SENSOR_TYPE_FILTERS,
-  type SensorSortId,
-} from "@/lib/sensors/constants";
+import { SENSOR_TYPE_FILTERS } from "@/lib/sensors/constants";
 import {
   latestByType,
   type SensorReadingRow,
 } from "@/lib/sensors/queryReadings";
+import { MqttBrowserBridge } from "@/components/dashboard/MqttBrowserBridge";
 
 /** 테마 --chart-* 는 oklch 이므로 hsl() 로 감싸지 않음 (감싸면 무효 색 → 선 미표시) */
 const CHART_COLORS = [
@@ -80,9 +77,9 @@ function parseLocalDateTimeParts(s: string): {
       minute: floored,
     };
   }
-  const date = m[1];
-  const hour = Math.min(23, Math.max(0, parseInt(m[2], 10)));
-  const rawMin = parseInt(m[3], 10);
+  const date = m[1]!;
+  const hour = Math.min(23, Math.max(0, parseInt(m[2]!, 10)));
+  const rawMin = parseInt(m[3]!, 10);
   const minute = Math.min(
     50,
     Math.floor((Number.isFinite(rawMin) ? rawMin : 0) / 10) * 10,
@@ -137,7 +134,7 @@ function pivotChartRows(rows: SensorReadingRow[], types: string[]) {
   });
 }
 
-/** Sensor 영역 — 필터·정렬·요약·라인 차트 */
+/** Sensor 영역 — 기간·타입 필터·요약·라인 차트 (정렬은 추후 DB 테이블 탭에서) */
 export function SensorDashboard() {
   const { from: defFrom, to: defTo } = useMemo(() => defaultRange(), []);
   const [from, setFrom] = useState(defFrom);
@@ -145,7 +142,6 @@ export function SensorDashboard() {
   const [selectedTypes, setSelectedTypes] = useState<Set<string>>(
     () => new Set(SENSOR_TYPE_FILTERS.map((x) => x.type)),
   );
-  const [sort, setSort] = useState<SensorSortId>("recorded_at_desc");
   const [rows, setRows] = useState<SensorReadingRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -162,7 +158,6 @@ export function SensorDashboard() {
     const params = new URLSearchParams();
     params.set("from", new Date(from).toISOString());
     params.set("to", new Date(to).toISOString());
-    params.set("sort", sort);
     if (selectedTypes.size < SENSOR_TYPE_FILTERS.length) {
       params.set("types", [...selectedTypes].join(","));
     }
@@ -186,7 +181,7 @@ export function SensorDashboard() {
     } finally {
       setLoading(false);
     }
-  }, [from, to, sort, selectedTypes]);
+  }, [from, to, selectedTypes]);
 
   useEffect(() => {
     void fetchData();
@@ -224,8 +219,12 @@ export function SensorDashboard() {
     <section className="flex flex-col rounded-lg border bg-card p-4 text-card-foreground shadow-sm">
       <h2 className="text-base font-semibold tracking-tight">Sensor</h2>
       <p className="mt-1 text-sm text-muted-foreground">
-        온도·습도 등 센서 요약과 차트입니다. 기간·타입·정렬을 바꾼 뒤 적용하세요.
+        온도·습도 등 센서 요약과 차트입니다. 기간·타입을 바꾼 뒤 다시 조회하세요.
       </p>
+
+      <div className="mt-3">
+        <MqttBrowserBridge onStored={() => void fetchData()} />
+      </div>
 
       <div className="mt-4 space-y-4">
         <div className="grid gap-3 sm:grid-cols-2">
@@ -255,6 +254,7 @@ export function SensorDashboard() {
               <Select
                 value={String(fromParts.hour)}
                 onValueChange={(v) => {
+                  if (v == null) return;
                   const p = parseLocalDateTimeParts(from);
                   setFrom(
                     composeLocalDateTimeString(p.date, parseInt(v, 10), p.minute),
@@ -275,6 +275,7 @@ export function SensorDashboard() {
               <Select
                 value={String(fromParts.minute)}
                 onValueChange={(v) => {
+                  if (v == null) return;
                   const p = parseLocalDateTimeParts(from);
                   setFrom(
                     composeLocalDateTimeString(
@@ -324,6 +325,7 @@ export function SensorDashboard() {
               <Select
                 value={String(toParts.hour)}
                 onValueChange={(v) => {
+                  if (v == null) return;
                   const p = parseLocalDateTimeParts(to);
                   setTo(
                     composeLocalDateTimeString(p.date, parseInt(v, 10), p.minute),
@@ -344,6 +346,7 @@ export function SensorDashboard() {
               <Select
                 value={String(toParts.minute)}
                 onValueChange={(v) => {
+                  if (v == null) return;
                   const p = parseLocalDateTimeParts(to);
                   setTo(
                     composeLocalDateTimeString(
@@ -389,25 +392,7 @@ export function SensorDashboard() {
           </div>
         </div>
 
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
-          <div className="space-y-1.5 sm:min-w-[220px]">
-            <Label>정렬</Label>
-            <Select
-              value={sort}
-              onValueChange={(v) => setSort(v as SensorSortId)}
-            >
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {SENSOR_SORT_OPTIONS.map((o) => (
-                  <SelectItem key={o.id} value={o.id}>
-                    {o.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
+        <div className="flex justify-end">
           <Button type="button" variant="secondary" onClick={() => void fetchData()}>
             다시 조회
           </Button>

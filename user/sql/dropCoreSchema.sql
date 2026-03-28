@@ -9,6 +9,7 @@ drop trigger if exists on_auth_user_created on auth.users;
 -- 자식 테이블부터 (FK 순서)
 drop table if exists public.sensor_readings cascade;
 drop table if exists public.actuator_controls cascade;
+drop table if exists public.mqtt_devices cascade; -- 레거시(현재 coreSchema 미포함)
 drop table if exists public.sensors cascade;
 
 -- 예전 스키마(farms) 사용 시

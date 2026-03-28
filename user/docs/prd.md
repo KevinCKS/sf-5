@@ -135,6 +135,9 @@ smartfarm/sensors
 
 - Arduino·서버·DB 매핑 시 키 이름(`temp`, `humi` 등)을 동일 규약으로 유지한다.
 
+**브라우저 구독·DB 저장(구현 메모)**  
+웹 클라이언트가 동일 브로커(WebSocket)에 연결해 `smartfarm/sensors` 를 구독하고, 수신 JSON을 검증한 뒤 로그인 세션으로 `POST /api/sensors/ingest` 를 호출하여 **현재 로그인 사용자**의 `sensors.owner_id` 에 매칭되는 센서에만 `sensor_readings` 를 저장한다. 탭을 닫으면 구독이 끊긴다. 브로커 자격 증명은 `NEXT_PUBLIC_` 환경 변수로 노출될 수 있으므로 프로덕션에서는 ACL·전용 계정을 권장한다.
+
 ### 6.2 액츄에이터 — Arduino **구독**, 웹 **발행**
 
 - 식물성장 LED, Pump, FAN1, FAN2에 대해 **토픽을 각각 분리**하여 Arduino가 구독한다.

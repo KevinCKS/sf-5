@@ -91,32 +91,33 @@
 
 ---
 
-## 단계 5 — 센서 데이터: API·필터·정렬·차트
+## 단계 5 — 센서 데이터: API·필터·차트
 
 **목표:** PRD §2.2.
 
-1. `sensor_readings`(및 `sensors`) 조회 API 또는 서버 액션: 기간·타입 필터, 정렬 옵션.
-2. 대시보드 Sensor 영역: 요약 레이블, **라인 차트**(선택 라이브러리로 구현).
-3. 필터: 온도/습도/EC/pH, 기간(일자·시간 범위). 정렬: 수집일시·타입·값.
+1. `sensor_readings` 조회 API: 기간·타입 필터(`GET /api/sensor-readings`). 정렬 쿼리 파라미터는 API에 유지 가능하나, **대시보드는 목록 테이블 전에 정렬 UI를 두지 않음**(차트·요약 중심).
+2. 대시보드 Sensor: 타입별 요약, 기간·10분 단위 시각, 타입별 라인 차트.
+3. 필터: 온도/습도/EC/pH, 기간.
 
-**완료 기준:** DB에 쌓인 샘플 데이터로 필터·정렬·차트가 동작한다.
+**완료 기준:** DB 샘플로 필터·차트가 동작한다.
 
-**테스트·검증:** 샘플 데이터로 필터 조합·정렬 방향·차트 축이 기대와 일치하는지 확인.
+**테스트·검증:** 필터·기간·차트 축이 기대와 일치하는지 확인.
 
 ---
 
-## 단계 6 — MQTT 인프라·서버 연결 (HiveMQ)
+## 단계 6 — MQTT 인프라·브라우저 수신 (HiveMQ)
 
-**목표:** PRD §2.4, §6, §9 보안(시크릿 비노출).
+**목표:** PRD §2.4, §6, §9 (시크릿 노출 최소화·ACL 권장).
 
 1. HiveMQ Cloud 브로커·자격증명 확보.
-2. **서버 전용** MQTT 클라이언트(노드 등)로 연결·구독·발행 경로 설계. 브라우저에 MQTT 비밀번호 노출 금지.
-3. 토픽 **allowlist**: PRD §6.1 `smartfarm/sensors`, §6.2 `smartfarm/actuators/led|pump|fan1|fan2`.
-4. 수신 JSON 키 `temp`, `humi`, `ec`, `ph`, `timestamp` 파싱 규약 고정.
+2. **브라우저 MQTT**(`NEXT_PUBLIC_MQTT_*`): 대시보드에서 `smartfarm/sensors` 구독, 수신 시 로그인 세션으로 `POST /api/sensors/ingest` → 본인 소유 `sensors`에만 `sensor_readings` 저장. `web/lib/mqtt/*`에서 allowlist·JSON 파싱.
+3. **서버 발행만** 별도 자격: `MQTT_BROKER_URL` 등 — `POST /api/mqtt/publish` 전용(브라우저 번들 금지).
+4. 토픽 **allowlist**: PRD §6.1 `smartfarm/sensors`, §6.2 `smartfarm/actuators/led|pump|fan1|fan2` — `web/lib/mqtt/allowlist.ts`.
+5. 수신 JSON 키 `temp`, `humi`, `ec`, `ph`, `timestamp` 고정(`parseSensorPayload`). 상세는 `user/check/mqttHiveMQ.md`.
 
-**완료 기준:** 테스트 메시지를 브로커로 보내면 서버가 수신·로그 또는 임시 저장까지 확인 가능.
+**완료 기준:** MQTTX 등으로 브로커에 발행 → 대시보드에서 MQTT 연결 후 Supabase `sensor_readings` 반영(로그인 사용자·센서 소유 일치 시).
 
-**테스트·검증:** MQTTX로 `smartfarm/sensors` 발행 → 서버 로그 확인. 필요 시 발행 API로 allowlist 토픽만 허용되는지 확인.
+**테스트·검증:** `smartfarm/sensors` 발행 → 브리지 힌트·차트. 선택: `POST /api/mqtt/publish` 로 allowlist 외 토픽 거부 확인.
 
 ---
 
@@ -131,7 +132,7 @@
 
 **완료 기준:** 시리얼에서 발행 주기·구독 수신이 확인되고, **단계 6** 서버/MQTTX와 교차 검증된다.
 
-**테스트·검증:** 웹 서버 구독 로그 또는 MQTTX와 보드가 동일 메시지를 주고받는지 확인. 액추는 MQTTX로 `{"state":"ON"}` 발행해 보드 구독 반응 확인.
+**테스트·검증:** MQTTX와 보드가 동일 메시지를 주고받는지 확인. 센서는 대시보드 브라우저 MQTT 연결 상태에서 DB 반영 여부로 확인. 액추는 MQTTX로 `{"state":"ON"}` 발행해 보드 구독 반응 확인.
 
 ---
 
@@ -139,13 +140,14 @@
 
 **목표:** PRD §6.1(웹에서 연결·토픽 설정), §2.2 실시간/최신 반영.
 
-1. (권한 검증 하에) MQTT 구독 토픽·연결 관련 설정을 저장/적용하는 UI 및 API.
-2. `smartfarm/sensors` 수신 시 `sensors`/`sensor_readings`에 매핑 저장.
-3. 대시보드에 최신값 또는 실시간 갱신(폴링·SSE 등 선택).
+**현재(단계 6까지):** 센서 수신 → DB는 **브라우저 MQTT + `POST /api/sensors/ingest`**(로그인 사용자 기준)로 처리. 대시보드는 `sensor_readings` 조회로 최신값·차트 표시.
 
-**완료 기준:** **단계 7** 보드(또는 MQTTX)가 발행한 페이로드가 DB·화면에 반영된다.
+1. (향후, 권한 검증 하에) MQTT 구독 토픽·브로커 주소 등을 웹에서 저장/적용하는 UI 및 API — PRD의 “실시간 설정”에 해당.
+2. (완료 시) 수신 데이터가 `sensors`/`sensor_readings`·화면과 일관되게 반영.
 
-**테스트·검증:** 발행 후 Table Editor·대시보드 숫자 일치. 토픽 설정 변경 시 재연결·수신 여부.
+**완료 기준:** **단계 7** 보드(또는 MQTTX) 발행분이 DB·대시보드에 반영되고, (선택) 웹에서 MQTT 관련 설정을 바꿀 수 있다.
+
+**테스트·검증:** Table Editor·대시보드 수치 일치. 설정 UI를 넣은 경우에만 토픽 변경·재연결 확인.
 
 ---
 

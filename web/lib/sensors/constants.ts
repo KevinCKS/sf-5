@@ -8,7 +8,7 @@ export const SENSOR_TYPE_FILTERS = [
 
 export type SensorTypeId = (typeof SENSOR_TYPE_FILTERS)[number]["type"];
 
-/** 정렬 옵션 (API·클라이언트 공통) */
+/** 정렬 옵션 — GET /api/sensor-readings 의 `sort` 와 동일. DB 테이블 화면(예정) 탭에서 사용 예정 */
 export const SENSOR_SORT_OPTIONS = [
   { id: "recorded_at_desc", label: "수집일시 · 최신순" },
   { id: "recorded_at_asc", label: "수집일시 · 과거순" },

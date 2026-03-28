@@ -24,6 +24,7 @@ export async function GET(request: Request) {
   const fromParam = searchParams.get("from");
   const toParam = searchParams.get("to");
   const typesParam = searchParams.get("types");
+  // sort 생략 시 최신순 — 대시보드 차트용. DB 테이블 탭에서는 `sort` 쿼리로 전달 예정
   const sortRaw = searchParams.get("sort") ?? "recorded_at_desc";
 
   const allowedSorts = new Set(
