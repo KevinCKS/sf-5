@@ -1,8 +1,10 @@
+import { Suspense } from "react";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
-import { LogoutButton } from "./LogoutButton";
+import { DashboardMain } from "@/components/dashboard/DashboardMain";
+import { Skeleton } from "@/components/ui/skeleton";
 
-/** 보호된 대시보드(메인) — 로그인 사용자만 접근 */
+/** 보호된 대시보드(메인) — Sensor / Actuator 구획 및 상태 UI */
 export default async function DashboardPage() {
   const supabase = await createClient();
   const {
@@ -14,19 +16,21 @@ export default async function DashboardPage() {
   }
 
   return (
-    <div className="min-h-screen bg-muted/20">
-      <header className="flex items-center justify-between border-b bg-background px-4 py-3">
-        <h1 className="text-lg font-semibold">스마트팜 대시보드</h1>
-        <LogoutButton />
-      </header>
-      <main className="p-4">
-        <p className="text-muted-foreground">
-          로그인됨: <span className="font-medium text-foreground">{user.email}</span>
-        </p>
-        <p className="mt-4 text-sm text-muted-foreground">
-          이후 단계에서 센서·액츄 UI가 이 영역에 연결됩니다.
-        </p>
-      </main>
+    <Suspense fallback={<DashboardPageSkeleton />}>
+      <DashboardMain userEmail={user.email ?? null} />
+    </Suspense>
+  );
+}
+
+/** searchParams 사용 클라이언트 전 Suspense 폴백 */
+function DashboardPageSkeleton() {
+  return (
+    <div className="mx-auto max-w-6xl space-y-6 p-4 md:p-6">
+      <Skeleton className="h-5 w-64" />
+      <div className="grid gap-6 md:grid-cols-2">
+        <Skeleton className="h-48 rounded-lg" />
+        <Skeleton className="h-48 rounded-lg" />
+      </div>
     </div>
   );
 }
