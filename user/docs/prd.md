@@ -60,7 +60,7 @@
 | 영역 | 내용 |
 |------|------|
 | **Sensor** | 실시간 또는 최신 센서 요약, §2.2 필터·정렬·차트. |
-| **Actuator** | §2.3 액츄에이터 ON/OFF 제어 버튼 및 §6.3 기준 **보드 상태** 표시(가능할 때). |
+| **Actuator** | §2.3 ON/OFF 제어, `actuator_controls` 최근 이력·비우기, §6.3 **보드 상태** 및 **명령 직후** 피드백(동일 카드 행). |
 
 ---
 
@@ -141,12 +141,12 @@ smartfarm/sensors
 - Arduino·서버·DB 매핑 시 키 이름(`temp`, `humi` 등)을 동일 규약으로 유지한다.
 
 **브라우저 구독·DB 저장(구현 메모)**  
-웹 클라이언트가 동일 브로커(WebSocket)에 연결해 `smartfarm/sensors` 를 구독하고, 수신 JSON을 검증한 뒤 로그인 세션으로 `POST /api/sensors/ingest` 를 호출하여 **현재 로그인 사용자**의 `sensors.owner_id` 에 매칭되는 센서에만 `sensor_readings` 를 저장한다. 탭을 닫으면 구독이 끊긴다. 브로커 자격 증명은 `NEXT_PUBLIC_` 환경 변수로 노출될 수 있으므로 프로덕션에서는 ACL·전용 계정을 권장한다.
+웹 클라이언트가 동일 브로커(WebSocket)에 연결해 **`smartfarm/sensors`** 와 **`smartfarm/actuators/status/#`** (§6.3) 를 **함께** 구독한다. 센서 수신 JSON은 검증 후 `POST /api/sensors/ingest` → 본인 소유 `sensors`에만 `sensor_readings` 저장. §6.3 상태 메시지는 `POST /api/actuators/status/ingest` → `actuator_status` upsert. 탭을 닫으면 구독이 끊긴다. `NEXT_PUBLIC_` 자격 증명은 프로덕션에서 ACL·전용 계정 권장.
 
 ### 6.2 액츄에이터 — Arduino **구독**, 웹 **발행**
 
 - 식물성장 LED, Pump, FAN1, FAN2에 대해 **토픽을 각각 분리**하여 Arduino가 구독한다.
-- **웹 화면**에서 토픽·연결을 **실시간 설정**할 수 있어야 한다.
+- **웹**에서 브로커 연결·자격은 Sensor 영역 MQTT 설정(`NEXT_PUBLIC_MQTT_*`·localStorage)과 동일하게 쓰되, **명령 토픽 문자열은 allowlist 고정**(편집 UI 없음).
 
 **Topic 예**
 
@@ -164,6 +164,34 @@ smartfarm/sensors
 ```
 
 (`OFF` 등 임베디드와 동일한 규약으로 고정)
+
+**서버 발행(구현 메모)**  
+`POST /api/mqtt/publish` 는 로그인 세션·**allowlist** 만 허용한다. **§6.3 상태 토픽은 웹·서버에서 발행하지 않는다**(보드 전용). 액추 **명령** 토픽은 HiveMQ 전달 확인을 위해 **QoS 1**, `smartfarm/sensors` 발행 경로는 **QoS 0**. 서버는 `MQTT_BROKER_URL` 등 **서버 전용 env**로만 브로커에 연결한다. 발행 성공 후에만 `actuator_controls` 에 이력 삽입한다.
+
+### 6.3 액추 실제 상태 — Arduino **발행**, 웹 **구독**
+
+- 보드는 명령(§6.2) 수신 처리 후(또는 동일 시점에) **상태를 별도 토픽으로 발행**한다.
+- 웹은 동일 브로커에서 해당 토픽(또는 `smartfarm/actuators/status/#`)을 구독하고, 로그인 세션으로 `POST /api/actuators/status/ingest` 를 호출해 **`actuator_status`** 를 갱신한다.
+
+**Topic 예**
+
+| 대상 | Topic |
+|------|--------|
+| 식물성장 LED | `smartfarm/actuators/status/led` |
+| Pump | `smartfarm/actuators/status/pump` |
+| FAN1 | `smartfarm/actuators/status/fan1` |
+| FAN2 | `smartfarm/actuators/status/fan2` |
+
+**Payload 예**
+
+```json
+{"state":"ON"}
+```
+
+**구독 와일드카드** — `smartfarm/actuators/status/#`
+
+**대시보드 UI(구현 메모)**  
+액추 행에는 (1) **`POST /api/mqtt/publish` 성공 직후** 클라이언트에만 존재하는 **명령 반영** 표시(서버 발행 완료, 보드 §6.3 보고 전), (2) **`actuator_status`** 기반 **보드 보고** 표시를 구분한다. 보고가 오기 전에는 명령 표시가 유지되며, DB의 `updated_at` 이 명령 시각 이후로 갱신되면 보드 값이 우선한다.
 
 ---
 
@@ -198,11 +226,14 @@ smartfarm/sensors
 ## 10. 개발 시 체크리스트 (요약)
 
 - [ ] Supabase Auth 로그인·회원가입·보호 라우트
-- [ ] 대시보드: 센서 필터·정렬·라인차트·액츄에이터 버튼
-- [ ] DB: users, sensors, sensor_readings, actuator_controls, actuator_status (확장 테이블은 단계적)
+- [ ] 대시보드: 센서 필터·정렬·라인차트·액츄에이터(명령·보드 상태·이력)
+- [ ] DB: `profiles`, `sensors`, `sensor_readings`, `actuator_controls`, `actuator_status` (확장: `alert_*` 등은 단계적)
 - [ ] HiveMQ 연동 및 §6 토픽·JSON 규약에 맞춘 Arduino·웹 연동
 - [ ] Vercel + GitHub CI/CD
 - [ ] §8에 따른 환경 변수(로컬 `web/.env.local`, 선택 `user/.env.local` 초안, Vercel)
+
+**구현 반영 메모 (액추·MQTT·UI)**  
+서버 `POST /api/mqtt/publish`, `GET`/`DELETE` `/api/actuator-controls`, `GET` `/api/actuators/status`, `POST` `/api/actuators/status/ingest`; 브라우저 `MqttBrowserBridge` 가 센서·§6.3 상태 동시 구독; `ActuatorPanel` 에서 명령 성공 직후 표시와 `actuator_status` 보고 구분, 제어 버튼은 스피너 없이 동작(동일 행 연타만 방지). Arduino 예제 스케치는 §6.3 상태 발행 포함(`user/script/SmartfarmMqttR4WiFi/`). 상세는 `user/docs/plan.md` 단계 6·8·9, `user/check/mqttHiveMQ.md`.
 
 ---
 

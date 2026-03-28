@@ -27,7 +27,8 @@
 1. 테스트 사용자로 로그인(또는 Table Editor에서 해당 사용자로 보기).
 2. `sensors`에 `owner_id` = 본인 `profiles.id` 로 행 삽입 → `sensor_readings` 삽입 가능 여부 확인.
 3. `actuator_controls`에 `owner_id` = 본인 id 로 삽입.
-4. **다른 사용자**로는 위 행이 **보이지 않아야** 한다.
+4. `actuator_status`에 본인 `owner_id`·`actuator_key` 로 upsert 가능 여부 확인.
+5. **다른 사용자**로는 위 행이 **보이지 않아야** 한다.
 
 서비스 롤은 RLS를 우회하므로, 정책 검증은 **로그인 사용자(anon 키 아닌 JWT)** 기준으로 할 것.
 

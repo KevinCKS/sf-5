@@ -50,13 +50,14 @@
 
 ## 단계 2 — Supabase DB 스키마 (핵심 테이블)
 
-**목표:** PRD §5의 `users` 연동, `sensors`, `sensor_readings`, `actuator_controls`를 반영한다.
+**목표:** PRD §5의 `users` 연동, `sensors`, `sensor_readings`, `actuator_controls`, `actuator_status`(§6.3)를 반영한다.
 
 1. `auth.users`와 1:1인 프로필(`users` 또는 동일 역할 테이블) 및 트리거/정책.
 2. `sensors`: 메타정보(타입·단위·소속 등 PRD에 맞는 컬럼).
 3. `sensor_readings`: 시계열 값, `(sensor_id, recorded_at)` 인덱스.
 4. `actuator_controls`: 제어 이력(대상·상태·시각 등).
-5. **RLS**: **사용자(소유자) 기준** 접근 제한 — 단일 농장 전제로 `farms` 없이 `owner_id` 등으로 설계(`user/sql/coreSchema.sql` 참고).
+5. `actuator_status`: 액추 **보고 상태**(§6.3, `owner_id`+`actuator_key`당 최신 1행) — PRD §5.4.1, `coreSchema.sql` 또는 기존 DB에 `user/sql/addActuatorStatusTable.sql` 추가.
+6. **RLS**: **사용자(소유자) 기준** 접근 제한 — 단일 농장 전제로 `farms` 없이 `owner_id` 등으로 설계(`user/sql/coreSchema.sql` 참고).
 
 **완료 기준:** Supabase Table Editor에서 테이블·RLS가 동작하고, 읽기/쓰기 시나리오가 검증된다.
 
@@ -110,12 +111,12 @@
 **목표:** PRD §2.4, §6, §9 (시크릿 노출 최소화·ACL 권장).
 
 1. HiveMQ Cloud 브로커·자격증명 확보.
-2. **브라우저 MQTT**(`NEXT_PUBLIC_MQTT_*`): 대시보드에서 `smartfarm/sensors` 구독, 수신 시 로그인 세션으로 `POST /api/sensors/ingest` → 본인 소유 `sensors`에만 `sensor_readings` 저장. `web/lib/mqtt/*`에서 allowlist·JSON 파싱.
-3. **서버 발행만** 별도 자격: `MQTT_BROKER_URL` 등 — `POST /api/mqtt/publish` 전용(브라우저 번들 금지).
-4. 토픽 **allowlist**: PRD §6.1 `smartfarm/sensors`, §6.2 `smartfarm/actuators/led|pump|fan1|fan2` — `web/lib/mqtt/allowlist.ts`.
+2. **브라우저 MQTT**(`NEXT_PUBLIC_MQTT_*`): 대시보드에서 **`smartfarm/sensors`** 와 **`smartfarm/actuators/status/#`** 를 함께 구독 — 센서 수신 시 `POST /api/sensors/ingest`, §6.3 상태 수신 시 `POST /api/actuators/status/ingest`. `web/lib/mqtt/*`에서 allowlist·JSON 파싱.
+3. **서버 발행만** 별도 자격: `MQTT_BROKER_URL` 등 — `POST /api/mqtt/publish` 전용(브라우저 번들 금지). 액추 명령은 **QoS 1**, §6.3 상태 토픽은 **발행 allowlist에 없음**(보드만 발행).
+4. 토픽 **allowlist**: PRD §6.1 센서, §6.2 명령 액추 4종 — `web/lib/mqtt/allowlist.ts` (`isAllowedMqttPublishTopic`). §6.3은 ingest 검증용 별도 상수.
 5. 수신 JSON 키 `temp`, `humi`, `ec`, `ph`, `timestamp` 고정(`parseSensorPayload`). 상세는 `user/check/mqttHiveMQ.md`.
 
-**완료 기준:** MQTTX 등으로 브로커에 발행 → 대시보드에서 MQTT 연결 후 Supabase `sensor_readings` 반영(로그인 사용자·센서 소유 일치 시).
+**완료 기준:** MQTTX 등으로 브로커에 발행 → 대시보드에서 MQTT 연결 후 Supabase `sensor_readings` 반영(로그인 사용자·센서 소유 일치 시). §6.3 토픽은 보드·MQTTX 발행으로 `actuator_status`·UI 갱신 확인 가능.
 
 **테스트·검증:** `smartfarm/sensors` 발행 → 브리지 힌트·차트. 선택: `POST /api/mqtt/publish` 로 allowlist 외 토픽 거부 확인.
 
@@ -142,7 +143,7 @@
 
 **현재:** 센서 수신 → DB는 **브라우저 MQTT + `POST /api/sensors/ingest`**(로그인 사용자 기준). 대시보드는 `sensor_readings` 조회로 최신값·차트 표시.
 
-1. **설정 UI:** 대시보드 `MqttBrowserBridge` — 브로커 WebSocket URL·사용자명·비밀번호 편집, **이 브라우저에 저장**(localStorage). 기본값은 `NEXT_PUBLIC_MQTT_*` , 비밀번호 비우면 env 폴백. 센서 구독 토픽은 PRD §6.1·`allowlist` 에 따라 `smartfarm/sensors` 고정 표시(액추는 단계 9).
+1. **설정 UI:** 대시보드 `MqttBrowserBridge` — 브로커 WebSocket URL·사용자명·비밀번호 편집, **이 브라우저에 저장**(localStorage). 기본값은 `NEXT_PUBLIC_MQTT_*` , 비밀번호 비우면 env 폴백. 센서 구독 토픽은 PRD §6.1·`allowlist` 에 따라 `smartfarm/sensors` 고정 표시; 연결 시 **§6.3** `smartfarm/actuators/status/#` 는 코드에서 동시 구독(단계 9와 연동).
 2. **저장 후 적용:** 저장 시 연결 중이면 끊고, **연결 끊기 → MQTT 연결**로 재적용.
 
 **완료 기준:** **단계 7** 보드(또는 MQTTX) 발행분이 DB·대시보드에 반영되고, 웹에서 브로커 자격 증명을 바꿔 재연결할 수 있다.
@@ -155,16 +156,19 @@
 
 **목표:** PRD §2.3, §6.2, §6.3.
 
-1. 대시보드 **Actuator** 패널: LED·Pump·FAN1·FAN2 각각 **ON / OFF** 버튼 (`ActuatorPanel`).
-2. 클릭 시 `POST /api/mqtt/publish` — `{"state":"ON"|"OFF"}` + allowlist 토픽, 서버가 HiveMQ(`MQTT_*` env)로 발행.
-3. 발행 성공 후 같은 요청에서 `actuator_controls`에 이력 삽입(`owner_id`, `actuator_key`, `state`, `triggered_by`).
-4. **GET `/api/actuator-controls`** — 본인 최근 이력(패널 하단 목록). **DELETE** 로 본인 이력 비우기(선택 구현).
+1. 대시보드 **Actuator** 패널(`ActuatorPanel`): LED·Pump·FAN1·FAN2 각각 **ON / OFF**; 행당 **명령**(서버 발행 직후 클라이언트 표시) / **보드**(`actuator_status`) / 갱신 시각 구분.
+2. 클릭 시 `POST /api/mqtt/publish` — `{"state":"ON"|"OFF"}` + allowlist 토픽, 서버가 HiveMQ(`MQTT_*` env)로 발행(액추 **QoS 1**).
+3. 발행 성공 후 같은 요청에서 `actuator_controls`에 이력 삽입(`owner_id`, `actuator_key`, `state`, `triggered_by`). 이력 목록은 **비동기** 재조회(버튼에 스피너 없음, 동일 행 연타만 `ref`로 방지).
+4. **GET** / **DELETE** `/api/actuator-controls` — 본인 최근 이력·비우기.
 5. **§6.3** 보드가 `smartfarm/actuators/status/{led|pump|fan1|fan2}` 로 `{"state":"ON"|"OFF"}` 발행 → 브라우저 MQTT가 `smartfarm/actuators/status/#` 구독 → `POST /api/actuators/status/ingest` → **`actuator_status`** upsert.
-6. **GET `/api/actuators/status`** — 패널에 **보드 상태** 표시. 테이블·RLS: `user/sql/coreSchema.sql` 또는 `user/sql/addActuatorStatusTable.sql`.
+6. **GET `/api/actuators/status`** — 패널에 보드 상태 병합 표시. 테이블·RLS: `user/sql/coreSchema.sql` 또는 `user/sql/addActuatorStatusTable.sql`.
+7. Arduino 예제: `user/script/SmartfarmMqttR4WiFi/` — 명령 콜백 후 §6.3 토픽으로 상태 재발행.
 
-**완료 기준:** 명령 수신(시리얼) + 이력 DB + (MQTT 연결 시) 상태 토픽 수신 후 `actuator_status`·UI 반영.
+**완료 기준:** 명령 수신(시리얼) + 이력 DB + (Sensor 카드 **MQTT 연결** 시) §6.3 수신 후 `actuator_status`·UI **보드** 표시; 클릭 직후 **명령** 표시로 응답 체감 확보.
 
-**테스트·검증:** 버튼 ON/OFF → 브로커 → Arduino 시리얼·`actuator_controls` → §6.3 발행 → Web Client/MQTTX·대시보드 보드 상태.
+**테스트·검증:** 버튼 ON/OFF → 브로커 → Arduino 시리얼·`actuator_controls` → §6.3 발행 → HiveMQ Web Client/MQTTX·대시보드. 커밋 예: `09 Actuator Publish/Status`.
+
+**관련:** `user/check/mqttHiveMQ.md`, PRD §6.2·§6.3, `web/components/dashboard/ActuatorPanel.tsx`.
 
 ---
 

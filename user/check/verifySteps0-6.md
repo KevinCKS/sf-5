@@ -46,7 +46,7 @@ npm run build
 
 | 절차 | 기대 |
 |------|------|
-| Supabase SQL Editor에서 `user/sql/coreSchema.sql` 적용 이력 | `profiles`, `sensors`, `sensor_readings`, `actuator_controls` 존재 |
+| Supabase SQL Editor에서 `user/sql/coreSchema.sql` 적용 이력 | `profiles`, `sensors`, `sensor_readings`, `actuator_controls`, `actuator_status` 존재(기존 DB만 쓰는 경우 `addActuatorStatusTable.sql` 추가) |
 | (선택) 레거시 `mqtt_devices` 제거 | `user/sql/dropMqttDevices.sql` 실행 후 테이블 없음 |
 | Table Editor | RLS 켜진 상태(정책은 coreSchema 참고) |
 
@@ -98,12 +98,14 @@ npm run build
 | (브라우저 DevTools Network) | `POST /api/sensors/ingest` — 로그인 세션(`credentials: include`) |
 | Supabase `sensor_readings` | 본인 소유 센서에 대해 새 행 증가 |
 | **연결 끊기** | 구독 종료, 탭을 닫으면 수집 중단 |
+| (단계 9 연동) 동일 연결로 `smartfarm/actuators/status/#` 구독 | §6.3 메시지 수신 시 `POST /api/actuators/status/ingest` — `actuator_status` 반영 |
 
 ### 선택
 
 | 절차 | 기대 |
 |------|------|
 | 로그인 상태에서 `POST /api/mqtt/publish` — allowlist 토픽 | 200. 임의 토픽 `forbidden/topic` | 400 |
+| 로그인 상태에서 §6.3 상태 토픽을 `POST /api/mqtt/publish` 로 보내려 함 | 400(발행 allowlist 아님) |
 
 ---
 
@@ -116,3 +118,9 @@ npm run build
 ---
 
 문제 시: `user/check/mqttHiveMQ.md`, `web/.env.example` 참고.
+
+---
+
+## 단계 9 (액추) — 요약
+
+전체 절차는 `user/docs/plan.md` **단계 9** 및 PRD §6.2·§6.3. 최소 확인: `POST /api/mqtt/publish` 로 ON/OFF → `actuator_controls` 이력 → (Sensor **MQTT 연결** + 보드 §6.3 발행) → `actuator_status`·Actuator **보드** 표시.

@@ -25,6 +25,7 @@ PRD §6, `web/lib/mqtt/allowlist.ts` 와 동일한 문자열을 사용합니다.
 | 발행 토픽 | `smartfarm/sensors` |
 | 발행 JSON | `temp`, `humi`, `ec`, `ph`, `timestamp` — 보드는 플레이스홀더 `"-"` 만 보냄(NTP 없음). DB 시각은 대시보드 브리지가 브라우저 시각으로 설정 |
 | 구독 토픽 | `smartfarm/actuators/led`, `…/pump`, `…/fan1`, `…/fan2` |
+| 발행(§6.3) | 명령 수신 후 `smartfarm/actuators/status/{led|pump|fan1|fan2}` 로 `{"state":"ON"|"OFF"}` 재발행 — 대시보드 브리지·`actuator_status` 와 정합 |
 | 주기 발행 | 약 15초마다 자동(고정 더미 값) |
 | 시리얼 | `p` — 즉시 1회 발행, `t23.5` — temp 덮어쓰기, `h` — 도움말 |
 
@@ -40,6 +41,7 @@ PRD §6, `web/lib/mqtt/allowlist.ts` 와 동일한 문자열을 사용합니다.
 
 1. MQTTX에서 토픽 `smartfarm/actuators/led`(또는 pump, fan1, fan2)로 페이로드 `{"state":"ON"}` 발행.
 2. 보드 시리얼에 `[ACT] smartfarm/actuators/led {"state":"ON"}` 형태로 수신되는지 확인.
+3. (스케치 §6.3 포함 시) 시리얼에 `[STATUS] smartfarm/actuators/status/led` 등 발행 로그가 이어지는지, 대시보드 **MQTT 연결** 상태에서 Actuator **보드** 표시가 갱신되는지 확인.
 
 ## 문제 시
 
