@@ -8,6 +8,7 @@ import { sortReadingRows, type SensorReadingRow } from "@/lib/sensors/queryReadi
 
 /** 센서 시계열 조회 — 기간·타입·정렬 (RLS: 본인 소유 센서만) */
 export async function GET(request: Request) {
+  try {
   const supabase = await createClient();
   const {
     data: { user },
@@ -111,4 +112,11 @@ export async function GET(request: Request) {
   filtered = sortReadingRows(filtered, sort);
 
   return NextResponse.json({ rows: filtered });
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : "서버 오류";
+    if (process.env.NODE_ENV === "development") {
+      console.error("[api/sensor-readings]", e);
+    }
+    return NextResponse.json({ error: msg }, { status: 500 });
+  }
 }

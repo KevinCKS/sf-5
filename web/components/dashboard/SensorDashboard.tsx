@@ -26,6 +26,7 @@ import {
   type SensorReadingRow,
 } from "@/lib/sensors/queryReadings";
 import { MqttBrowserBridge } from "@/components/dashboard/MqttBrowserBridge";
+import { parseResponseBodyJson } from "@/lib/http/parseResponseBodyJson";
 
 /** 테마 --chart-* 는 oklch 이므로 hsl() 로 감싸지 않음 (감싸면 무효 색 → 선 미표시) */
 const CHART_COLORS = [
@@ -39,6 +40,10 @@ const CHART_COLORS = [
 /** 10분 단위 분 옵션 (네이티브 datetime-local 은 step UI 를 무시하는 경우가 많아 Select 로 고정) */
 const MINUTES_10 = [0, 10, 20, 30, 40, 50] as const;
 const HOURS_0_23 = Array.from({ length: 24 }, (_, i) => i);
+
+/** 실시간 모드: 조회 구간 길이·자동 폴링 간격 */
+const LIVE_WINDOW_MS = 60 * 60 * 1000;
+const LIVE_POLL_MS = 30 * 1000;
 
 /** datetime-local 기본값 — 7일 전 ~ 지금 (분은 10분 단위로 내림) */
 function defaultRange() {
@@ -144,20 +149,38 @@ export function SensorDashboard() {
   );
   const [rows, setRows] = useState<SensorReadingRow[]>([]);
   const [loading, setLoading] = useState(true);
+  /** 폴링·MQTT 등 백그라운드 갱신(차트 유지, 전체 로딩 스피너 없음) */
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  /** 기간 수동 지정 vs 최근 구간 자동(실시간) */
+  const [timeMode, setTimeMode] = useState<"range" | "live">("range");
 
-  const fetchData = useCallback(async () => {
+  const fetchData = useCallback(async (opts?: { silent?: boolean }) => {
+    const silent = opts?.silent === true;
     if (selectedTypes.size === 0) {
       setError("센서 타입을 한 개 이상 선택해 주세요.");
       setRows([]);
       setLoading(false);
+      setRefreshing(false);
       return;
     }
-    setLoading(true);
-    setError(null);
+    if (silent) {
+      setRefreshing(true);
+    } else {
+      setLoading(true);
+    }
+    if (!silent) setError(null);
     const params = new URLSearchParams();
-    params.set("from", new Date(from).toISOString());
-    params.set("to", new Date(to).toISOString());
+    const fromIso =
+      timeMode === "live"
+        ? new Date(Date.now() - LIVE_WINDOW_MS).toISOString()
+        : new Date(from).toISOString();
+    const toIso =
+      timeMode === "live"
+        ? new Date().toISOString()
+        : new Date(to).toISOString();
+    params.set("from", fromIso);
+    params.set("to", toIso);
     if (selectedTypes.size < SENSOR_TYPE_FILTERS.length) {
       params.set("types", [...selectedTypes].join(","));
     }
@@ -165,27 +188,50 @@ export function SensorDashboard() {
       const res = await fetch(`/api/sensor-readings?${params.toString()}`, {
         credentials: "include",
       });
-      const json = (await res.json()) as {
+      const parsed = await parseResponseBodyJson<{
         rows?: SensorReadingRow[];
         error?: string;
-      };
+      }>(res);
+      if (!parsed.parseOk) {
+        if (!silent) {
+          setError(parsed.fallbackMessage);
+          setRows([]);
+        }
+        return;
+      }
+      const json = parsed.data;
       if (!res.ok) {
-        setError(json.error ?? "데이터를 불러오지 못했습니다.");
-        setRows([]);
+        if (!silent) {
+          setError(json.error ?? "데이터를 불러오지 못했습니다.");
+          setRows([]);
+        }
         return;
       }
       setRows(json.rows ?? []);
+      setError(null);
     } catch {
-      setError("네트워크 오류가 발생했습니다.");
-      setRows([]);
+      if (!silent) {
+        setError("네트워크 오류가 발생했습니다.");
+        setRows([]);
+      }
     } finally {
-      setLoading(false);
+      if (silent) setRefreshing(false);
+      else setLoading(false);
     }
-  }, [from, to, selectedTypes]);
+  }, [from, to, selectedTypes, timeMode]);
 
   useEffect(() => {
     void fetchData();
   }, [fetchData]);
+
+  /** 실시간 모드: 주기적 재조회 — silent 로 차트 깜박임 방지 */
+  useEffect(() => {
+    if (timeMode !== "live") return;
+    const id = window.setInterval(() => {
+      void fetchData({ silent: true });
+    }, LIVE_POLL_MS);
+    return () => window.clearInterval(id);
+  }, [timeMode, fetchData]);
 
   /** 차트 시리즈 — 선택 타입 중 실제 데이터가 있는 것만 */
   const typesList = useMemo(() => {
@@ -219,15 +265,53 @@ export function SensorDashboard() {
     <section className="flex flex-col rounded-lg border bg-card p-4 text-card-foreground shadow-sm">
       <h2 className="text-base font-semibold tracking-tight">Sensor</h2>
       <p className="mt-1 text-sm text-muted-foreground">
-        온도·습도 등 센서 요약과 차트입니다. 기간·타입을 바꾼 뒤 다시 조회하세요.
+        온도·습도 등 센서 요약과 차트입니다.{" "}
+        {timeMode === "live"
+          ? "실시간 모드는 최근 1시간을 자동으로 갱신합니다."
+          : "기간·타입을 바꾼 뒤 다시 조회하세요."}
       </p>
 
       <div className="mt-3">
-        <MqttBrowserBridge onStored={() => void fetchData()} />
+        <MqttBrowserBridge onStored={() => void fetchData({ silent: true })} />
       </div>
 
       <div className="mt-4 space-y-4">
-        <div className="grid gap-3 sm:grid-cols-2">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-muted-foreground text-sm">조회 방식</span>
+            <div className="bg-muted/50 inline-flex rounded-md border p-0.5">
+              <Button
+                type="button"
+                variant={timeMode === "range" ? "secondary" : "ghost"}
+                size="sm"
+                className="h-8"
+                onClick={() => setTimeMode("range")}
+              >
+                기간 지정
+              </Button>
+              <Button
+                type="button"
+                variant={timeMode === "live" ? "secondary" : "ghost"}
+                size="sm"
+                className="h-8"
+                onClick={() => setTimeMode("live")}
+              >
+                실시간
+              </Button>
+            </div>
+          </div>
+          {timeMode === "live" ? (
+            <p className="text-muted-foreground max-w-md text-xs leading-relaxed">
+              최근 1시간 구간 · 약 {LIVE_POLL_MS / 1000}초마다 자동 조회 · MQTT로
+              저장되면 즉시 반영
+            </p>
+          ) : null}
+        </div>
+
+        <div
+          className={`grid gap-3 sm:grid-cols-2 ${timeMode === "live" ? "pointer-events-none opacity-50" : ""}`}
+          aria-hidden={timeMode === "live"}
+        >
           <div className="space-y-1.5">
             <Label id="sensor-from-label">시작 (일시)</Label>
             <div
@@ -238,6 +322,7 @@ export function SensorDashboard() {
               <input
                 id="sensor-from-date"
                 type="date"
+                disabled={timeMode === "live"}
                 value={fromParts.date}
                 onChange={(e) => {
                   const p = parseLocalDateTimeParts(from);
@@ -253,6 +338,7 @@ export function SensorDashboard() {
               />
               <Select
                 value={String(fromParts.hour)}
+                disabled={timeMode === "live"}
                 onValueChange={(v) => {
                   if (v == null) return;
                   const p = parseLocalDateTimeParts(from);
@@ -274,6 +360,7 @@ export function SensorDashboard() {
               </Select>
               <Select
                 value={String(fromParts.minute)}
+                disabled={timeMode === "live"}
                 onValueChange={(v) => {
                   if (v == null) return;
                   const p = parseLocalDateTimeParts(from);
@@ -309,6 +396,7 @@ export function SensorDashboard() {
               <input
                 id="sensor-to-date"
                 type="date"
+                disabled={timeMode === "live"}
                 value={toParts.date}
                 onChange={(e) => {
                   const p = parseLocalDateTimeParts(to);
@@ -324,6 +412,7 @@ export function SensorDashboard() {
               />
               <Select
                 value={String(toParts.hour)}
+                disabled={timeMode === "live"}
                 onValueChange={(v) => {
                   if (v == null) return;
                   const p = parseLocalDateTimeParts(to);
@@ -345,6 +434,7 @@ export function SensorDashboard() {
               </Select>
               <Select
                 value={String(toParts.minute)}
+                disabled={timeMode === "live"}
                 onValueChange={(v) => {
                   if (v == null) return;
                   const p = parseLocalDateTimeParts(to);
@@ -392,8 +482,18 @@ export function SensorDashboard() {
           </div>
         </div>
 
-        <div className="flex justify-end">
-          <Button type="button" variant="secondary" onClick={() => void fetchData()}>
+        <div className="flex items-center justify-end gap-2">
+          {refreshing ? (
+            <span className="text-muted-foreground flex items-center gap-1 text-xs">
+              <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
+              갱신 중…
+            </span>
+          ) : null}
+          <Button
+            type="button"
+            variant="secondary"
+            onClick={() => void fetchData({ silent: false })}
+          >
             다시 조회
           </Button>
         </div>
@@ -420,8 +520,9 @@ export function SensorDashboard() {
           className="mt-4 flex min-h-[120px] flex-col items-center justify-center rounded-md border border-dashed bg-muted/30 px-4 py-8 text-center text-sm text-muted-foreground"
           role="status"
         >
-          이 기간·조건에 맞는 센서 데이터가 없습니다. DB에 샘플을 넣었는지 확인해
-          주세요.
+          {timeMode === "live"
+            ? "최근 1시간·선택 타입에 맞는 데이터가 없습니다."
+            : "이 기간·조건에 맞는 센서 데이터가 없습니다. DB에 샘플을 넣었는지 확인해 주세요."}
         </div>
       ) : null}
 

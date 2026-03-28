@@ -6,3 +6,6 @@
 **/.env*.local
 .env
 !**/.env.example
+
+# Arduino — 로컬에만 두는 WiFi/MQTT 비밀 (예시는 arduino_secrets.h.example 커밋)
+user/script/**/arduino_secrets.h

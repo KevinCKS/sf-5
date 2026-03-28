@@ -128,9 +128,9 @@
 1. Arduino Uno R4 WiFi: WiFi 연결, HiveMQ에 MQTT 연결.
 2. **발행:** `smartfarm/sensors`에 PRD 예시 형태 JSON(`temp`,`humi`,`ec`,`ph`,`timestamp`) — 초기에는 고정 더미 값 또는 시리얼 입력 값.
 3. **구독:** `smartfarm/actuators/led`, `pump`, `fan1`, `fan2` — 수신 시 시리얼로 `state` 출력.
-4. 스케치 파일·설정 메모는 `user/` 하위에 저장(예: `user/script/` 등, 팀 규칙에 맞게).
+4. 스케치·시크릿 예시: `user/script/SmartfarmMqttR4WiFi/` — 검증 절차: `user/check/arduinoR4MqttStep7.md`.
 
-**완료 기준:** 시리얼에서 발행 주기·구독 수신이 확인되고, **단계 6** 서버/MQTTX와 교차 검증된다.
+**완료 기준:** 시리얼에서 발행 주기·구독 수신이 확인되고, **단계 6**(브라우저 MQTT·MQTTX)과 교차 검증된다.
 
 **테스트·검증:** MQTTX와 보드가 동일 메시지를 주고받는지 확인. 센서는 대시보드 브라우저 MQTT 연결 상태에서 DB 반영 여부로 확인. 액추는 MQTTX로 `{"state":"ON"}` 발행해 보드 구독 반응 확인.
 
