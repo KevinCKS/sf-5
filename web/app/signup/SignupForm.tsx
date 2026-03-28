@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type FormEvent } from "react";
+import { useState, useEffect, type FormEvent } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
@@ -16,6 +16,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { DASHBOARD_PREFETCH_HREFS } from "@/lib/dashboardPrefetchRoutes";
 
 /** 회원가입 폼 */
 export function SignupForm() {
@@ -25,6 +26,11 @@ export function SignupForm() {
   const [error, setError] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+
+  // 가입 직후 대시보드 전 탭 프리패치
+  useEffect(() => {
+    DASHBOARD_PREFETCH_HREFS.forEach((href) => router.prefetch(href));
+  }, [router]);
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();

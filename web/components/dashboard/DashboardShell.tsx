@@ -2,6 +2,7 @@
 
 import type { ReactNode } from "react";
 import { DashboardNav } from "@/components/dashboard/DashboardNav";
+import { DashboardRoutePrefetch } from "@/components/dashboard/DashboardRoutePrefetch";
 
 type DashboardShellProps = {
   children: ReactNode;
@@ -12,6 +13,7 @@ type DashboardShellProps = {
 export function DashboardShell({ children, userEmail }: DashboardShellProps) {
   return (
     <div className="flex min-h-[calc(100vh-3.5rem)] flex-col md:flex-row">
+      <DashboardRoutePrefetch />
       <aside className="dashboard-sidebar shrink-0 border-b border-cyan-500/10 bg-sidebar/90 p-3 backdrop-blur-sm md:w-52 md:border-b-0 md:border-r">
         <DashboardNav />
       </aside>

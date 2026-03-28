@@ -25,6 +25,9 @@ export function DashboardNav() {
           <Link
             key={href}
             href={href}
+            prefetch
+            scroll={false}
+            // 탭 전환 시 맨 위로 스크롤 복원 생략 — 전환·레이아웃 안정화
             className={cn(
               "rounded-full px-3 py-2 text-sm font-medium transition-all duration-200",
               active

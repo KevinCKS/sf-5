@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type FormEvent } from "react";
+import { useState, useEffect, type FormEvent } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
@@ -16,6 +16,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { DASHBOARD_PREFETCH_HREFS } from "@/lib/dashboardPrefetchRoutes";
 
 /** 로그인 폼 — 이메일·비밀번호 */
 export function LoginForm() {
@@ -27,6 +28,12 @@ export function LoginForm() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+
+  // 대시보드 전 탭 + next 쿼리 경로 프리패치 — 로그인 직후 탭 전환이 가벼움
+  useEffect(() => {
+    const set = new Set<string>([...DASHBOARD_PREFETCH_HREFS, next]);
+    set.forEach((href) => router.prefetch(href));
+  }, [router, next]);
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();

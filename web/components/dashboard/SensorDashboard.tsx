@@ -388,7 +388,11 @@ export function SensorDashboard({
                           interval="preserveStartEnd"
                         />
                         <YAxis tick={{ fontSize: 11 }} domain={["auto", "auto"]} />
-                        <Tooltip contentStyle={{ fontSize: 12 }} />
+                        {/* 실시간 갱신 시 애니메이션 생략 — 렌더·CPU 부담 감소 */}
+                        <Tooltip
+                          contentStyle={{ fontSize: 12 }}
+                          isAnimationActive={false}
+                        />
                         <Line
                           type="monotone"
                           dataKey={ty}
@@ -396,6 +400,7 @@ export function SensorDashboard({
                           stroke={CHART_COLORS[i % CHART_COLORS.length]}
                           dot={false}
                           connectNulls
+                          isAnimationActive={false}
                         />
                       </LineChart>
                     </ResponsiveContainer>

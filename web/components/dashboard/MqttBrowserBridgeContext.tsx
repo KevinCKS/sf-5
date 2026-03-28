@@ -10,7 +10,6 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import mqtt from "mqtt";
 import type { MqttClient } from "mqtt";
 import { isActuatorStatusTopic, MQTT_TOPICS } from "@/lib/mqtt/allowlist";
 import {
@@ -111,31 +110,35 @@ export function MqttBrowserProvider({ children }: { children: ReactNode }) {
     setStatus("connecting");
     subscribeTopicRef.current = topic;
 
-    const c = mqtt.connect(url, {
-      username,
-      password,
-      reconnectPeriod: 0,
-      connectTimeout: 15_000,
-    });
-    clientRef.current = c;
+    // mqtt 패키지는 연결 시에만 동적 로드 — 대시보드 초기 번들·파싱 부담 감소
+    void import("mqtt")
+      .then((mqttModule) => {
+        const mqtt = mqttModule.default;
+        const c = mqtt.connect(url, {
+          username,
+          password,
+          reconnectPeriod: 0,
+          connectTimeout: 15_000,
+        });
+        clientRef.current = c;
 
-    c.on("connect", () => {
-      setStatus("live");
-      c.subscribe(
-        subscribeList,
-        { qos: 0 },
-        (err) => {
-          if (err) {
-            setStatus("error");
-            setHint(err.message);
-          } else {
-            callbacksRef.current.onSubscribed?.();
-          }
-        },
-      );
-    });
+        c.on("connect", () => {
+          setStatus("live");
+          c.subscribe(
+            subscribeList,
+            { qos: 0 },
+            (err) => {
+              if (err) {
+                setStatus("error");
+                setHint(err.message);
+              } else {
+                callbacksRef.current.onSubscribed?.();
+              }
+            },
+          );
+        });
 
-    c.on("message", async (recvTopic, buf) => {
+        c.on("message", async (recvTopic, buf) => {
       const raw = buf.toString("utf8");
 
       if (recvTopic === subscribeTopicRef.current) {
@@ -213,12 +216,17 @@ export function MqttBrowserProvider({ children }: { children: ReactNode }) {
         }
         return;
       }
-    });
+        });
 
-    c.on("error", (err) => {
-      setStatus("error");
-      setHint(err.message);
-    });
+        c.on("error", (err) => {
+          setStatus("error");
+          setHint(err.message);
+        });
+      })
+      .catch((e) => {
+        setStatus("error");
+        setHint(e instanceof Error ? e.message : "MQTT 모듈 로드 실패");
+      });
   }, [form]);
 
   useEffect(() => {
