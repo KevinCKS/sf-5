@@ -19,7 +19,7 @@ export const ACTUATOR_ROWS: {
   label: string;
   topic: string;
 }[] = [
-  { key: "led", label: "식물성장 LED", topic: MQTT_TOPICS.actuators.led },
+  { key: "led", label: "LED", topic: MQTT_TOPICS.actuators.led },
   { key: "pump", label: "Pump", topic: MQTT_TOPICS.actuators.pump },
   { key: "fan1", label: "FAN1", topic: MQTT_TOPICS.actuators.fan1 },
   { key: "fan2", label: "FAN2", topic: MQTT_TOPICS.actuators.fan2 },

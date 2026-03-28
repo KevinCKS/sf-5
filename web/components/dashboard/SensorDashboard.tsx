@@ -25,7 +25,10 @@ import {
   latestByType,
   type SensorReadingRow,
 } from "@/lib/sensors/queryReadings";
-import { MqttBrowserBridge } from "@/components/dashboard/MqttBrowserBridge";
+import {
+  MqttBrowserSettings,
+  useMqttBrowser,
+} from "@/components/dashboard/MqttBrowserBridge";
 import { parseResponseBodyJson } from "@/lib/http/parseResponseBodyJson";
 
 /** 테마 --chart-* 는 oklch 이므로 hsl() 로 감싸지 않음 (감싸면 무효 색 → 선 미표시) */
@@ -224,6 +227,17 @@ export function SensorDashboard() {
     void fetchData();
   }, [fetchData]);
 
+  const { registerCallbacks } = useMqttBrowser();
+
+  /** MQTT ingest/구독 성공 시 차트·실시간 모드 연동 */
+  useEffect(() => {
+    registerCallbacks({
+      onStored: () => void fetchData({ silent: true }),
+      onSubscribed: () => setTimeMode("live"),
+    });
+    return () => registerCallbacks({});
+  }, [registerCallbacks, fetchData]);
+
   /** 실시간 모드: 주기적 재조회 — silent 로 차트 깜박임 방지 */
   useEffect(() => {
     if (timeMode !== "live") return;
@@ -313,10 +327,7 @@ export function SensorDashboard() {
       </p>
 
       <div className="mt-3">
-        <MqttBrowserBridge
-          onStored={() => void fetchData({ silent: true })}
-          onSubscribed={() => setTimeMode("live")}
-        />
+        <MqttBrowserSettings />
       </div>
 
       <div className="mt-4 space-y-4">

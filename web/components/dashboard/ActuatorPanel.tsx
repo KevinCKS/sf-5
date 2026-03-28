@@ -3,7 +3,17 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Gauge, Loader2, RefreshCw, Send, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { ACTUATOR_ROWS } from "@/lib/mqtt/actuatorTopics";
+import {
+  clearBrowserMqttSettings,
+  getEnvDefaultMqttForm,
+  getInitialMqttForm,
+  normalizeActuatorCommandTopic,
+  saveBrowserMqttSettings,
+  type BrowserMqttSettings,
+} from "@/lib/mqtt/browserMqttSettings";
 import { parseResponseBodyJson } from "@/lib/http/parseResponseBodyJson";
 
 type ActuatorControlRow = {
@@ -31,6 +41,15 @@ export function ActuatorPanel() {
   >({});
   const [clearing, setClearing] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
+  /** Sensor 카드와 동일 localStorage — 브라우저 MQTT 연결·토픽 */
+  const [mqttForm, setMqttForm] = useState<BrowserMqttSettings>(() =>
+    getEnvDefaultMqttForm(),
+  );
+  const [mqttSettingsHint, setMqttSettingsHint] = useState<string | null>(null);
+
+  useEffect(() => {
+    setMqttForm(getInitialMqttForm());
+  }, []);
 
   const loadHistory = useCallback(async () => {
     setListError(null);
@@ -187,6 +206,35 @@ export function ActuatorPanel() {
     return ACTUATOR_ROWS.find((r) => r.key === key)?.label ?? key;
   }
 
+  /** 브라우저 MQTT 설정 저장(Sensor 카드와 같은 키) */
+  function handleSaveMqttSettings() {
+    saveBrowserMqttSettings(mqttForm);
+    setMqttSettingsHint(
+      "이 브라우저에 저장했습니다. Sensor 카드에서 MQTT 연결을 끊었다가 다시 연결하면 §6.3 패턴이 적용됩니다.",
+    );
+    setActionError(null);
+  }
+
+  function handleClearMqttSettings() {
+    clearBrowserMqttSettings();
+    setMqttForm(getEnvDefaultMqttForm());
+    setMqttSettingsHint(
+      "저장값을 지웠습니다. env 기본값을 쓰려면 Sensor 카드에서 연결을 다시 시도하세요.",
+    );
+  }
+
+  /** 최근 이력 시각 — 24시간제 `YYYY-MM-DD HH:mm` (로컬) */
+  function formatHistoryTime(iso: string): string {
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return "—";
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, "0");
+    const day = String(d.getDate()).padStart(2, "0");
+    const hh = String(d.getHours()).padStart(2, "0");
+    const mm = String(d.getMinutes()).padStart(2, "0");
+    return `${y}-${m}-${day} ${hh}:${mm}`;
+  }
+
   /** 보드 DB 값 vs 방금 보낸 명령(서버 발행 성공) 중 화면에 보여줄 값 */
   function resolveActuatorDisplay(rowKey: string): {
     state: string | undefined;
@@ -255,8 +303,141 @@ export function ActuatorPanel() {
       <p className="mt-1 text-sm text-muted-foreground">
         §6.2: 명령 발행 후 이력 저장. 클릭 직후에는 <strong className="text-foreground font-medium">명령</strong> 배지로
         서버 발행 결과를 바로 보여 주고, §6.3 보드 MQTT 보고가 오면 <strong className="text-foreground font-medium">보드</strong> 값으로
-        바뀝니다 (Sensor 카드 MQTT 연결).
+        바뀝니다. 브로커·§6.3 구독은 아래와 Sensor 카드 MQTT가 같은{" "}
+        <strong className="text-foreground font-medium">localStorage</strong> 를 씁니다.
       </p>
+
+      <details className="group mt-3 space-y-2 rounded-md border bg-muted/30 px-2 py-2 text-xs">
+        <summary className="cursor-pointer select-none font-medium text-foreground">
+          연결·토픽 설정 (PRD §6.2·§6.3)
+        </summary>
+        <div className="mt-2 grid gap-2 sm:grid-cols-2">
+          <div className="space-y-1 sm:col-span-2">
+            <Label htmlFor="actuator-mqtt-broker-url">브로커 WebSocket URL</Label>
+            <Input
+              id="actuator-mqtt-broker-url"
+              type="url"
+              autoComplete="off"
+              placeholder="wss://…"
+              value={mqttForm.brokerUrl}
+              onChange={(e) =>
+                setMqttForm((f) => ({ ...f, brokerUrl: e.target.value }))
+              }
+              className="font-mono text-xs"
+            />
+          </div>
+          <div className="space-y-1">
+            <Label htmlFor="actuator-mqtt-user">사용자명</Label>
+            <Input
+              id="actuator-mqtt-user"
+              autoComplete="off"
+              value={mqttForm.username}
+              onChange={(e) =>
+                setMqttForm((f) => ({ ...f, username: e.target.value }))
+              }
+              className="text-xs"
+            />
+          </div>
+          <div className="space-y-1">
+            <Label htmlFor="actuator-mqtt-pass">비밀번호</Label>
+            <Input
+              id="actuator-mqtt-pass"
+              type="password"
+              autoComplete="off"
+              placeholder="비우면 .env 의 NEXT_PUBLIC_MQTT_PASSWORD"
+              value={mqttForm.password}
+              onChange={(e) =>
+                setMqttForm((f) => ({ ...f, password: e.target.value }))
+              }
+              className="text-xs"
+            />
+          </div>
+          <div className="space-y-2 sm:col-span-2">
+            <div className="text-foreground font-medium">액추에이터 발행 토픽</div>
+            <p className="text-muted-foreground text-[11px] leading-relaxed">
+              PRD §6.2·서버 allowlist·해당 액추 키와 일치할 때만 유지됩니다.
+            </p>
+            <div className="grid gap-2">
+              {ACTUATOR_ROWS.map((row) => (
+                <div
+                  key={row.key}
+                  className="grid gap-1 sm:grid-cols-[6rem_1fr] sm:items-center"
+                >
+                  <Label
+                    htmlFor={`actuator-mqtt-cmd-${row.key}`}
+                    className="text-[11px] sm:pt-0"
+                  >
+                    {row.label}
+                  </Label>
+                  <Input
+                    id={`actuator-mqtt-cmd-${row.key}`}
+                    autoComplete="off"
+                    value={mqttForm.actuatorCommandTopics[row.key]}
+                    onChange={(e) =>
+                      setMqttForm((f) => ({
+                        ...f,
+                        actuatorCommandTopics: {
+                          ...f.actuatorCommandTopics,
+                          [row.key]: e.target.value,
+                        } satisfies BrowserMqttSettings["actuatorCommandTopics"],
+                      }))
+                    }
+                    className="font-mono text-xs"
+                  />
+                </div>
+              ))}
+            </div>
+          </div>
+          <div className="space-y-2 sm:col-span-2">
+            <div className="text-foreground font-medium">액추에이터 상태 구독 토픽</div>
+            <p className="text-muted-foreground text-[11px] leading-relaxed">
+              비우거나 잘못된 값은 저장 시 PRD 기본으로 맞춥니다.
+            </p>
+            <div className="grid gap-2">
+              {ACTUATOR_ROWS.map((row) => (
+                <div
+                  key={row.key}
+                  className="grid gap-1 sm:grid-cols-[6rem_1fr] sm:items-center"
+                >
+                  <Label
+                    htmlFor={`actuator-mqtt-st-${row.key}`}
+                    className="text-[11px] sm:pt-0"
+                  >
+                    {row.label}
+                  </Label>
+                  <Input
+                    id={`actuator-mqtt-st-${row.key}`}
+                    autoComplete="off"
+                    value={mqttForm.actuatorStatusSubscribeTopics[row.key]}
+                    onChange={(e) =>
+                      setMqttForm((f) => ({
+                        ...f,
+                        actuatorStatusSubscribeTopics: {
+                          ...f.actuatorStatusSubscribeTopics,
+                          [row.key]: e.target.value,
+                        } satisfies BrowserMqttSettings["actuatorStatusSubscribeTopics"],
+                      }))
+                    }
+                    className="font-mono text-xs"
+                  />
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+        <div className="flex flex-wrap gap-2 pt-1">
+          <Button type="button" size="sm" variant="secondary" onClick={handleSaveMqttSettings}>
+            이 브라우저에 저장
+          </Button>
+          <Button type="button" size="sm" variant="outline" onClick={handleClearMqttSettings}>
+            저장 지우기(env만)
+          </Button>
+        </div>
+      </details>
+      {mqttSettingsHint ? (
+        <p className="text-muted-foreground mt-2 text-xs">{mqttSettingsHint}</p>
+      ) : null}
+
       {hwError ? (
         <p className="text-destructive mt-2 text-xs" role="status">
           {hwError}
@@ -331,7 +512,16 @@ export function ActuatorPanel() {
                   size="sm"
                   variant="secondary"
                   className="min-w-[4.25rem]"
-                  onClick={() => void publishState(row.topic, "ON", row.key)}
+                  onClick={() =>
+                    void publishState(
+                      normalizeActuatorCommandTopic(
+                        row.key,
+                        mqttForm.actuatorCommandTopics[row.key],
+                      ),
+                      "ON",
+                      row.key,
+                    )
+                  }
                 >
                   ON
                 </Button>
@@ -340,7 +530,16 @@ export function ActuatorPanel() {
                   size="sm"
                   variant="outline"
                   className="min-w-[4.25rem]"
-                  onClick={() => void publishState(row.topic, "OFF", row.key)}
+                  onClick={() =>
+                    void publishState(
+                      normalizeActuatorCommandTopic(
+                        row.key,
+                        mqttForm.actuatorCommandTopics[row.key],
+                      ),
+                      "OFF",
+                      row.key,
+                    )
+                  }
                 >
                   OFF
                 </Button>
@@ -387,16 +586,18 @@ export function ActuatorPanel() {
         ) : history.length === 0 ? (
           <p className="text-muted-foreground text-sm">이력이 없습니다.</p>
         ) : (
-          <ul className="max-h-[200px] space-y-1 overflow-y-auto text-xs">
+          <ul className="max-h-[200px] space-y-0 overflow-y-auto text-xs">
             {history.map((h) => (
               <li
                 key={h.id}
-                className="font-mono text-muted-foreground flex flex-wrap justify-between gap-1 border-b border-dashed py-1 last:border-0"
+                className="text-muted-foreground grid grid-cols-[minmax(0,1fr)_2.75rem_8.5rem] items-center gap-x-2 border-b border-dashed py-1.5 last:border-0"
               >
-                <span>{labelForKey(h.actuator_key)}</span>
-                <span className="text-foreground">{h.state}</span>
-                <span className="w-full shrink-0 sm:w-auto">
-                  {new Date(h.recorded_at).toLocaleString("ko-KR")}
+                <span className="min-w-0 truncate font-sans">{labelForKey(h.actuator_key)}</span>
+                <span className="text-foreground w-full text-center font-mono tabular-nums">
+                  {h.state}
+                </span>
+                <span className="shrink-0 text-right font-mono text-[11px] tabular-nums">
+                  {formatHistoryTime(h.recorded_at)}
                 </span>
               </li>
             ))}
