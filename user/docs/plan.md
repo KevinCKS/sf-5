@@ -56,7 +56,7 @@
 2. `sensors`: 메타정보(타입·단위·소속 등 PRD에 맞는 컬럼).
 3. `sensor_readings`: 시계열 값, `(sensor_id, recorded_at)` 인덱스.
 4. `actuator_controls`: 제어 이력(대상·상태·시각 등).
-5. **RLS**: 농장/사용자 소유 기준으로 접근 제한(설계에 맞게 SQL 작성).
+5. **RLS**: **사용자(소유자) 기준** 접근 제한 — 단일 농장 전제로 `farms` 없이 `owner_id` 등으로 설계(`user/sql/coreSchema.sql` 참고).
 
 **완료 기준:** Supabase Table Editor에서 테이블·RLS가 동작하고, 읽기/쓰기 시나리오가 검증된다.
 
