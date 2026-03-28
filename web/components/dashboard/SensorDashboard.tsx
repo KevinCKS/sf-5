@@ -149,8 +149,6 @@ export function SensorDashboard() {
   );
   const [rows, setRows] = useState<SensorReadingRow[]>([]);
   const [loading, setLoading] = useState(true);
-  /** 폴링·MQTT 등 백그라운드 갱신(차트 유지, 전체 로딩 스피너 없음) */
-  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   /** 기간 수동 지정 vs 최근 구간 자동(실시간) */
   const [timeMode, setTimeMode] = useState<"range" | "live">("range");
@@ -161,12 +159,9 @@ export function SensorDashboard() {
       setError("센서 타입을 한 개 이상 선택해 주세요.");
       setRows([]);
       setLoading(false);
-      setRefreshing(false);
       return;
     }
-    if (silent) {
-      setRefreshing(true);
-    } else {
+    if (!silent) {
       setLoading(true);
     }
     if (!silent) setError(null);
@@ -215,8 +210,7 @@ export function SensorDashboard() {
         setRows([]);
       }
     } finally {
-      if (silent) setRefreshing(false);
-      else setLoading(false);
+      if (!silent) setLoading(false);
     }
   }, [from, to, selectedTypes, timeMode]);
 
@@ -272,7 +266,10 @@ export function SensorDashboard() {
       </p>
 
       <div className="mt-3">
-        <MqttBrowserBridge onStored={() => void fetchData({ silent: true })} />
+        <MqttBrowserBridge
+          onStored={() => void fetchData({ silent: true })}
+          onSubscribed={() => setTimeMode("live")}
+        />
       </div>
 
       <div className="mt-4 space-y-4">
@@ -482,13 +479,7 @@ export function SensorDashboard() {
           </div>
         </div>
 
-        <div className="flex items-center justify-end gap-2">
-          {refreshing ? (
-            <span className="text-muted-foreground flex items-center gap-1 text-xs">
-              <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
-              갱신 중…
-            </span>
-          ) : null}
+        <div className="flex justify-end">
           <Button
             type="button"
             variant="secondary"

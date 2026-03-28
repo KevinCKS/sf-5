@@ -24,13 +24,18 @@ function withBrowserTimestamp(raw: string): string | null {
 type MqttBrowserBridgeProps = {
   /** 수신 후 DB 저장 성공 시 차트 새로고침 */
   onStored?: () => void;
+  /** smartfarm/sensors 구독 성공 시 (예: 조회 방식을 실시간으로 전환) */
+  onSubscribed?: () => void;
 };
 
 /**
  * 브라우저에서 HiveMQ(WebSocket) 구독 → 수신 페이로드를 로그인 세션으로 POST /api/sensors/ingest
  * NEXT_PUBLIC_MQTT_* 는 번들에 노출됨 — 프로덕션에서는 제한적 계정·ACL 권장
  */
-export function MqttBrowserBridge({ onStored }: MqttBrowserBridgeProps) {
+export function MqttBrowserBridge({
+  onStored,
+  onSubscribed,
+}: MqttBrowserBridgeProps) {
   const wsUrl = process.env.NEXT_PUBLIC_MQTT_BROKER_URL;
   const mqttUser = process.env.NEXT_PUBLIC_MQTT_USERNAME;
   const mqttPass = process.env.NEXT_PUBLIC_MQTT_PASSWORD;
@@ -38,6 +43,8 @@ export function MqttBrowserBridge({ onStored }: MqttBrowserBridgeProps) {
   const clientRef = useRef<MqttClient | null>(null);
   const onStoredRef = useRef(onStored);
   onStoredRef.current = onStored;
+  const onSubscribedRef = useRef(onSubscribed);
+  onSubscribedRef.current = onSubscribed;
 
   const [status, setStatus] = useState<
     "idle" | "connecting" | "live" | "error"
@@ -76,6 +83,8 @@ export function MqttBrowserBridge({ onStored }: MqttBrowserBridgeProps) {
         if (err) {
           setStatus("error");
           setHint(err.message);
+        } else {
+          onSubscribedRef.current?.();
         }
       });
     });
