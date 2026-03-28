@@ -50,7 +50,7 @@ export function LoginForm() {
   }
 
   return (
-    <Card className="w-full max-w-md">
+    <Card className="w-full max-w-md border-cyan-400/25 shadow-[0_12px_48px_-16px_rgba(34,211,238,0.2)] ring-cyan-400/20">
       <CardHeader>
         <CardTitle>로그인</CardTitle>
         <CardDescription>이메일과 비밀번호를 입력해 주세요.</CardDescription>

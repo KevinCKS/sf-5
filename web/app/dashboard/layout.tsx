@@ -1,8 +1,10 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { MqttBrowserProvider } from "@/components/dashboard/MqttBrowserBridge";
+import { DashboardShell } from "@/components/dashboard/DashboardShell";
 import { LogoutButton } from "./LogoutButton";
 
-/** 대시보드 공통 레이아웃 — 헤더·배경 */
+/** 대시보드 공통 — 좌측 내비·MQTT Provider·헤더 */
 export default async function DashboardLayout({
   children,
 }: {
@@ -18,17 +20,21 @@ export default async function DashboardLayout({
   }
 
   return (
-    <div className="min-h-screen bg-muted/20">
-      <header className="sticky top-0 z-10 flex items-center justify-between border-b bg-background/95 px-4 py-3 backdrop-blur supports-[backdrop-filter]:bg-background/80">
+    <div className="dashboard-root">
+      <header className="dashboard-header sticky top-0 z-10 flex items-center justify-between px-4 py-3">
         <div>
-          <h1 className="text-lg font-semibold tracking-tight">
-            스마트팜 대시보드
+          <h1 className="text-lg font-semibold tracking-tight text-foreground">
+            스마트팜
           </h1>
-          <p className="text-xs text-muted-foreground">Sensor · Actuator</p>
+          <p className="text-muted-foreground text-xs tracking-wide">
+            대시보드 · DB · Alert
+          </p>
         </div>
         <LogoutButton />
       </header>
-      {children}
+      <MqttBrowserProvider>
+        <DashboardShell userEmail={user.email ?? null}>{children}</DashboardShell>
+      </MqttBrowserProvider>
     </div>
   );
 }

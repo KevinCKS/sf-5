@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { SensorMqttPayload } from "@/lib/mqtt/parseSensorPayload";
+import type { ReadingForAlert } from "@/lib/alerts/evaluateAlerts";
 
 /** MQTT 페이로드 키 → DB sensors.sensor_type */
 const MQTT_TO_DB: Record<"temp" | "humi" | "ec" | "ph", string> = {
@@ -16,10 +17,11 @@ export async function insertSensorReadingsForOwner(
   supabase: SupabaseClient,
   ownerId: string,
   data: SensorMqttPayload,
-): Promise<{ inserted: number; error?: string }> {
+): Promise<{ inserted: number; rows: ReadingForAlert[]; error?: string }> {
   if (ownerId.trim() === "") {
     return {
       inserted: 0,
+      rows: [],
       error: "owner_id 가 비어 있어 UUID 조회를 할 수 없습니다.",
     };
   }
@@ -30,7 +32,7 @@ export async function insertSensorReadingsForOwner(
     .eq("owner_id", ownerId);
 
   if (errS) {
-    return { inserted: 0, error: errS.message };
+    return { inserted: 0, rows: [], error: errS.message };
   }
 
   const byType = new Map(
@@ -57,14 +59,26 @@ export async function insertSensorReadingsForOwner(
   if (rows.length === 0) {
     return {
       inserted: 0,
+      rows: [],
       error:
         "해당 계정에 temperature/humidity/ec/ph 센서 메타가 없어 저장하지 않았습니다.",
     };
   }
 
-  const { error: errI } = await supabase.from("sensor_readings").insert(rows);
+  const { data: insertedRows, error: errI } = await supabase
+    .from("sensor_readings")
+    .insert(rows)
+    .select("id, sensor_id, value");
+
   if (errI) {
-    return { inserted: 0, error: errI.message };
+    return { inserted: 0, rows: [], error: errI.message };
   }
-  return { inserted: rows.length };
+
+  const out: ReadingForAlert[] = (insertedRows ?? []).map((r) => ({
+    id: r.id as string,
+    sensor_id: r.sensor_id as string,
+    value: Number(r.value),
+  }));
+
+  return { inserted: out.length, rows: out };
 }

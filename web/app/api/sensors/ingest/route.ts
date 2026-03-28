@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 
+import { evaluateAlertsForReadings } from "@/lib/alerts/evaluateAlerts";
 import { parseSensorPayload } from "@/lib/mqtt/parseSensorPayload";
 import { insertSensorReadingsForOwner } from "@/lib/sensors/insertSensorReadingsForOwner";
 import { createClient } from "@/lib/supabase/server";
@@ -46,7 +47,16 @@ export async function POST(request: Request) {
       );
     }
 
-    return NextResponse.json({ ok: true, inserted: result.inserted });
+    let alertsLogged = 0;
+    if (result.rows.length > 0) {
+      const ev = await evaluateAlertsForReadings(supabase, user.id, result.rows);
+      alertsLogged = ev.logged;
+      if (ev.error && process.env.NODE_ENV === "development") {
+        console.warn("[api/sensors/ingest] alert 평가:", ev.error);
+      }
+    }
+
+    return NextResponse.json({ ok: true, inserted: result.inserted, alertsLogged });
   } catch (e) {
     const msg = e instanceof Error ? e.message : "서버 오류";
     if (process.env.NODE_ENV === "development") {

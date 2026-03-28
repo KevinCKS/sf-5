@@ -183,6 +183,8 @@
 
 **테스트·검증:** 임계치 초과 시나리오(목 데이터 또는 시뮬레이션)로 로그 적재 확인.
 
+**구현 메모:** SQL `user/sql/addAlertTables.sql` · 적용 절차 `user/check/applyAlertTables.md` · 평가 로직 `web/lib/alerts/evaluateAlerts.ts` · MQTT 저장 후 `POST /api/sensors/ingest` 에서 `alert_logs` 적재 · Alert 탭 `web/components/dashboard/AlertPanel.tsx` · 검증용 `POST /api/alerts/simulate`.
+
 ---
 
 ## 단계 11 — 배포 (Vercel + GitHub)

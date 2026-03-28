@@ -6,10 +6,10 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ACTUATOR_ROWS } from "@/lib/mqtt/actuatorTopics";
+import { useMqttBrowser } from "@/components/dashboard/MqttBrowserBridge";
 import {
   clearBrowserMqttSettings,
   getEnvDefaultMqttForm,
-  getInitialMqttForm,
   normalizeActuatorCommandTopic,
   saveBrowserMqttSettings,
   type BrowserMqttSettings,
@@ -25,14 +25,27 @@ type ActuatorControlRow = {
 
 type HwRow = { state: string; updated_at: string };
 
+type ActuatorPanelProps = {
+  /** false: 좌측 패널에 토픽 설정이 있을 때(본문은 제어·상태만) */
+  showMqttDetails?: boolean;
+  /** false: DB 탭에서 이력만 둘 때 */
+  showControls?: boolean;
+  /** false: DB 탭에서 제어·이력만 분리할 때 */
+  showHistory?: boolean;
+};
+
 /** 액츄에이터 ON/OFF — POST /api/mqtt/publish + 이력 + §6.3 보드 상태 */
-export function ActuatorPanel() {
+export function ActuatorPanel({
+  showMqttDetails = true,
+  showControls = true,
+  showHistory = true,
+}: ActuatorPanelProps) {
   const [history, setHistory] = useState<ActuatorControlRow[]>([]);
-  const [loadingList, setLoadingList] = useState(true);
+  const [loadingList, setLoadingList] = useState(showHistory);
   const [listError, setListError] = useState<string | null>(null);
   const [hwByKey, setHwByKey] = useState<Record<string, HwRow>>({});
   const [hwError, setHwError] = useState<string | null>(null);
-  const [loadingHw, setLoadingHw] = useState(true);
+  const [loadingHw, setLoadingHw] = useState(showControls);
   /** 동일 행 연타·중복 요청만 막음(UI 비활성·스피너 없음) */
   const publishInFlightRef = useRef<Set<string>>(new Set());
   /** 서버 발행 성공 직후 표시(보드 §6.3 보고 전까지). 보드 updated_at 이 명령 시각 이후면 DB 값 우선 */
@@ -41,15 +54,8 @@ export function ActuatorPanel() {
   >({});
   const [clearing, setClearing] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
-  /** Sensor 카드와 동일 localStorage — 브라우저 MQTT 연결·토픽 */
-  const [mqttForm, setMqttForm] = useState<BrowserMqttSettings>(() =>
-    getEnvDefaultMqttForm(),
-  );
   const [mqttSettingsHint, setMqttSettingsHint] = useState<string | null>(null);
-
-  useEffect(() => {
-    setMqttForm(getInitialMqttForm());
-  }, []);
+  const { form: mqttForm, setForm: setMqttForm } = useMqttBrowser();
 
   const loadHistory = useCallback(async () => {
     setListError(null);
@@ -118,18 +124,21 @@ export function ActuatorPanel() {
   }, []);
 
   useEffect(() => {
+    if (!showHistory) return;
     void loadHistory();
-  }, [loadHistory]);
+  }, [loadHistory, showHistory]);
 
   useEffect(() => {
+    if (!showControls) return;
     void loadHardware();
-  }, [loadHardware]);
+  }, [loadHardware, showControls]);
 
   useEffect(() => {
+    if (!showControls) return;
     const h = () => void loadHardware({ silent: true });
     window.addEventListener("smartfarm-actuator-status-stored", h);
     return () => window.removeEventListener("smartfarm-actuator-status-stored", h);
-  }, [loadHardware]);
+  }, [loadHardware, showControls]);
 
   async function publishState(topic: string, state: "ON" | "OFF", rowKey: string) {
     if (publishInFlightRef.current.has(rowKey)) return;
@@ -210,7 +219,7 @@ export function ActuatorPanel() {
   function handleSaveMqttSettings() {
     saveBrowserMqttSettings(mqttForm);
     setMqttSettingsHint(
-      "이 브라우저에 저장했습니다. Sensor 카드에서 MQTT 연결을 끊었다가 다시 연결하면 §6.3 패턴이 적용됩니다.",
+      "이 브라우저에 저장했습니다. MQTT 연결을 끊었다가 다시 연결하면 §6.3 토픽이 적용됩니다.",
     );
     setActionError(null);
   }
@@ -219,7 +228,7 @@ export function ActuatorPanel() {
     clearBrowserMqttSettings();
     setMqttForm(getEnvDefaultMqttForm());
     setMqttSettingsHint(
-      "저장값을 지웠습니다. env 기본값을 쓰려면 Sensor 카드에서 연결을 다시 시도하세요.",
+      "저장값을 지웠습니다. env 기본값을 쓰려면 MQTT 연결을 다시 시도하세요.",
     );
   }
 
@@ -298,15 +307,24 @@ export function ActuatorPanel() {
   }
 
   return (
-    <section className="flex flex-col rounded-lg border bg-card p-4 text-card-foreground shadow-sm">
-      <h2 className="text-base font-semibold tracking-tight">Actuator</h2>
-      <p className="mt-1 text-sm text-muted-foreground">
-        §6.2: 명령 발행 후 이력 저장. 클릭 직후에는 <strong className="text-foreground font-medium">명령</strong> 배지로
-        서버 발행 결과를 바로 보여 주고, §6.3 보드 MQTT 보고가 오면 <strong className="text-foreground font-medium">보드</strong> 값으로
-        바뀝니다. 브로커·§6.3 구독은 아래와 Sensor 카드 MQTT가 같은{" "}
-        <strong className="text-foreground font-medium">localStorage</strong> 를 씁니다.
-      </p>
+    <section className="dashboard-panel">
+      <h2 className="text-base font-semibold tracking-tight">
+        {showControls ? "Actuator" : showHistory ? "액추에이터 제어 이력" : "Actuator"}
+      </h2>
+      {showControls ? (
+        <p className="mt-1 text-sm text-muted-foreground">
+          §6.2: 명령 발행 후 이력 저장. 클릭 직후에는 <strong className="text-foreground font-medium">명령</strong> 배지로
+          서버 발행 결과를 바로 보여 주고, §6.3 보드 MQTT 보고가 오면 <strong className="text-foreground font-medium">보드</strong> 값으로
+          바뀝니다. 브로커·§6.3 구독은{" "}
+          <strong className="text-foreground font-medium">localStorage</strong> 에 저장된 MQTT 설정과 같습니다.
+        </p>
+      ) : showHistory ? (
+        <p className="text-muted-foreground mt-1 text-sm">
+          actuator_controls 테이블에서 본인 명령 이력을 조회합니다.
+        </p>
+      ) : null}
 
+      {showMqttDetails ? (
       <details className="group mt-3 space-y-2 rounded-md border bg-muted/30 px-2 py-2 text-xs">
         <summary className="cursor-pointer select-none font-medium text-foreground">
           연결·토픽 설정 (PRD §6.2·§6.3)
@@ -434,16 +452,19 @@ export function ActuatorPanel() {
           </Button>
         </div>
       </details>
-      {mqttSettingsHint ? (
+      ) : null}
+      {showMqttDetails && mqttSettingsHint ? (
         <p className="text-muted-foreground mt-2 text-xs">{mqttSettingsHint}</p>
       ) : null}
 
-      {hwError ? (
+      {showControls && hwError ? (
         <p className="text-destructive mt-2 text-xs" role="status">
           {hwError}
         </p>
       ) : null}
 
+      {showControls ? (
+      <>
       <div className="mt-4 flex flex-wrap items-center justify-between gap-2 border-b border-dashed pb-3">
         <h3 className="text-muted-foreground text-xs font-medium uppercase tracking-wide">
           원격 제어 · 보드 상태
@@ -548,6 +569,8 @@ export function ActuatorPanel() {
           );
         })}
       </div>
+      </>
+      ) : null}
 
       {actionError ? (
         <p className="text-destructive mt-3 text-sm" role="alert">
@@ -555,6 +578,7 @@ export function ActuatorPanel() {
         </p>
       ) : null}
 
+      {showHistory ? (
       <div className="mt-4">
         <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
           <h3 className="text-muted-foreground text-xs font-medium uppercase tracking-wide">
@@ -604,6 +628,7 @@ export function ActuatorPanel() {
           </ul>
         )}
       </div>
+      ) : null}
     </section>
   );
 }

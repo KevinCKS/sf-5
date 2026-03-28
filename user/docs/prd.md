@@ -106,10 +106,13 @@
 ### 5.5 `alert_settings` (확장)
 
 - 임계치 및 알림 설정.
+- 컬럼(구현 기준): `owner_id`, `sensor_id`(센서당 1행), `min_value`·`max_value`(nullable, 둘 중 하나 이상), `enabled`, 시각 메타.
+- MQTT→`sensor_readings` 저장 직후 서버가 임계치를 검사해 초과 시 `alert_logs`에 기록한다.
 
 ### 5.6 `alert_logs` (확장)
 
 - 알림 발생 이력.
+- 컬럼(구현 기준): `owner_id`, `alert_setting_id`, `sensor_reading_id`, `message`, `created_at`.
 
 ---
 

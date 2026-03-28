@@ -22,7 +22,7 @@ export function PanelState({
 }: PanelStateProps) {
   return (
     <section
-      className="flex flex-col rounded-lg border bg-card p-4 text-card-foreground shadow-sm"
+      className="dashboard-panel"
       aria-busy={state === "loading"}
     >
       <h2 className="text-base font-semibold tracking-tight">{title}</h2>

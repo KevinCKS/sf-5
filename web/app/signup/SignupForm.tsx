@@ -58,7 +58,7 @@ export function SignupForm() {
   }
 
   return (
-    <Card className="w-full max-w-md">
+    <Card className="w-full max-w-md border-cyan-400/25 shadow-[0_12px_48px_-16px_rgba(34,211,238,0.2)] ring-cyan-400/20">
       <CardHeader>
         <CardTitle>회원가입</CardTitle>
         <CardDescription>이메일과 비밀번호로 계정을 만듭니다.</CardDescription>
