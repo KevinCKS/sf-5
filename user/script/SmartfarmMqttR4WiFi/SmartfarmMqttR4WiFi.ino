@@ -162,6 +162,10 @@ void setup() {
   Serial.println();
   Serial.print(F("[WiFi] OK IP "));
   Serial.println(WiFi.localIP());
+  // DHCP 할당 직후 스택에 따라 localIP 가 잠깐 0.0.0.0 일 수 있어 1초 대기 후 재출력
+  delay(1000);
+  Serial.print(F("[WiFi] IP (1초 후 재확인) "));
+  Serial.println(WiFi.localIP());
 
   lastPublishMs = millis();
 }
