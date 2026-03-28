@@ -150,6 +150,9 @@ export function SensorDashboard() {
   const [rows, setRows] = useState<SensorReadingRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  /** 측정 이력 삭제 성공 등 안내 */
+  const [notice, setNotice] = useState<string | null>(null);
+  const [clearingReadings, setClearingReadings] = useState(false);
   /** 기간 수동 지정 vs 최근 구간 자동(실시간) */
   const [timeMode, setTimeMode] = useState<"range" | "live">("range");
 
@@ -164,7 +167,10 @@ export function SensorDashboard() {
     if (!silent) {
       setLoading(true);
     }
-    if (!silent) setError(null);
+    if (!silent) {
+      setError(null);
+      setNotice(null);
+    }
     const params = new URLSearchParams();
     const fromIso =
       timeMode === "live"
@@ -253,6 +259,47 @@ export function SensorDashboard() {
       else next.add(type);
       return next;
     });
+  }
+
+  /** 본인 소유 센서의 sensor_readings 전부 삭제 */
+  async function handleClearAllReadings() {
+    if (
+      !window.confirm(
+        "본인 계정에 연결된 센서의 측정 이력(sensor_readings)을 모두 삭제합니다. 되돌릴 수 없습니다. 계속할까요?",
+      )
+    ) {
+      return;
+    }
+    setClearingReadings(true);
+    setNotice(null);
+    setError(null);
+    try {
+      const res = await fetch("/api/sensor-readings/clear", {
+        method: "DELETE",
+        credentials: "include",
+      });
+      const parsed = await parseResponseBodyJson<{
+        ok?: boolean;
+        deleted?: number;
+        error?: string;
+      }>(res);
+      if (!parsed.parseOk) {
+        setError(parsed.fallbackMessage);
+        return;
+      }
+      const json = parsed.data;
+      if (!res.ok) {
+        setError(json.error ?? "삭제에 실패했습니다.");
+        return;
+      }
+      const deleted = json.deleted ?? 0;
+      await fetchData({ silent: false });
+      setNotice(`측정 이력 ${deleted}건을 삭제했습니다.`);
+    } catch {
+      setError("네트워크 오류가 발생했습니다.");
+    } finally {
+      setClearingReadings(false);
+    }
   }
 
   return (
@@ -479,7 +526,15 @@ export function SensorDashboard() {
           </div>
         </div>
 
-        <div className="flex justify-end">
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          <Button
+            type="button"
+            variant="destructive"
+            disabled={clearingReadings}
+            onClick={() => void handleClearAllReadings()}
+          >
+            {clearingReadings ? "삭제 중…" : "측정 이력 전체 삭제"}
+          </Button>
           <Button
             type="button"
             variant="secondary"
@@ -488,6 +543,11 @@ export function SensorDashboard() {
             다시 조회
           </Button>
         </div>
+        {notice ? (
+          <p className="text-sm text-emerald-700 dark:text-emerald-400" role="status">
+            {notice}
+          </p>
+        ) : null}
       </div>
 
       {loading ? (

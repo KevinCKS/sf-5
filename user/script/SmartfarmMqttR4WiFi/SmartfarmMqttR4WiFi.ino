@@ -1,6 +1,6 @@
 /**
  * Smartfarm — Arduino UNO R4 WiFi (1차)
- * PRD §6 토픽·JSON 정합: 센서 발행 + 액추 구독 시리얼 출력
+ * PRD §6 토픽·JSON 정합: 센서 발행 + 액추 구독 + §6.3 상태 발행
  * timestamp 는 웹 브리지가 덮어쓰므로 본 페이로드는 플레이스홀더("-")만 둠 (NTP 없음)
  * 라이브러리: PubSubClient (라이브러리 매니저 설치)
  */
@@ -8,6 +8,7 @@
 #include <WiFiSSLClient.h>
 #include <PubSubClient.h>
 #include <math.h>
+#include <string.h>
 
 // arduino_secrets.h.example 을 같은 폴더에 arduino_secrets.h 로 복사한 뒤 값을 채웁니다.
 #include "arduino_secrets.h"
@@ -22,6 +23,12 @@ static const char TOPIC_LED[] = "smartfarm/actuators/led";
 static const char TOPIC_PUMP[] = "smartfarm/actuators/pump";
 static const char TOPIC_FAN1[] = "smartfarm/actuators/fan1";
 static const char TOPIC_FAN2[] = "smartfarm/actuators/fan2";
+
+// PRD §6.3 — 명령 처리 후 웹이 구독하는 상태 토픽(보고)
+static const char TOPIC_STATUS_LED[] = "smartfarm/actuators/status/led";
+static const char TOPIC_STATUS_PUMP[] = "smartfarm/actuators/status/pump";
+static const char TOPIC_STATUS_FAN1[] = "smartfarm/actuators/status/fan1";
+static const char TOPIC_STATUS_FAN2[] = "smartfarm/actuators/status/fan2";
 
 static const char MQTT_CLIENT_ID[] = "uno-r4-smartfarm-1";
 
@@ -38,12 +45,42 @@ static const unsigned long PUBLISH_INTERVAL_MS = 15000;
 
 static unsigned long lastPublishMs = 0;
 
+/** 명령 토픽에 대응하는 §6.3 상태 토픽으로 {"state":"ON"|"OFF"} 발행 */
+static void publishStatusForCommandTopic(const char* cmdTopic, const char* stateStr) {
+  const char* st = nullptr;
+  if (strcmp(cmdTopic, TOPIC_LED) == 0) st = TOPIC_STATUS_LED;
+  else if (strcmp(cmdTopic, TOPIC_PUMP) == 0) st = TOPIC_STATUS_PUMP;
+  else if (strcmp(cmdTopic, TOPIC_FAN1) == 0) st = TOPIC_STATUS_FAN1;
+  else if (strcmp(cmdTopic, TOPIC_FAN2) == 0) st = TOPIC_STATUS_FAN2;
+  if (!st) return;
+  char body[40];
+  snprintf(body, sizeof(body), "{\"state\":\"%s\"}", stateStr);
+  if (mqtt.publish(st, body)) {
+    Serial.print(F("[STATUS] "));
+    Serial.println(st);
+  } else {
+    Serial.println(F("[STATUS] publish 실패"));
+  }
+}
+
 static void mqttCallback(char* topic, byte* payload, unsigned int length) {
+  char buf[128];
+  unsigned int n = length < sizeof(buf) - 1 ? length : sizeof(buf) - 1;
+  memcpy(buf, payload, n);
+  buf[n] = '\0';
+
   Serial.print(F("[ACT] "));
   Serial.print(topic);
   Serial.print(F(" "));
-  for (unsigned int i = 0; i < length; i++) Serial.write(payload[i]);
-  Serial.println();
+  Serial.println(buf);
+
+  const char* stateStr = nullptr;
+  if (strstr(buf, "\"OFF\"") != nullptr) stateStr = "OFF";
+  else if (strstr(buf, "\"ON\"") != nullptr) stateStr = "ON";
+
+  if (stateStr != nullptr) {
+    publishStatusForCommandTopic(topic, stateStr);
+  }
 }
 
 static bool connectMqtt() {

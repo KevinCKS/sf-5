@@ -18,6 +18,9 @@
 | `sensors` | 센서 메타 (`owner_id`) |
 | `sensor_readings` | 시계열 |
 | `actuator_controls` | 액추 이력 (`owner_id`) |
+| `actuator_status` | 액추 **보고 상태** §6.3 (`owner_id`·`actuator_key`당 최신) |
+
+**이미 `coreSchema.sql` 만 예전에 적용한 DB**에는 `user/sql/addActuatorStatusTable.sql` 을 SQL Editor에서 실행해 `actuator_status` 를 추가한다.
 
 ## 3. RLS·데이터 검증 (권장)
 

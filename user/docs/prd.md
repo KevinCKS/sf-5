@@ -36,13 +36,14 @@
 
 - 대상: **식물성장 LED**, **Pump**, **FAN1**, **FAN2**.
 - UI: 각각 **ON/OFF** 버튼(또는 동등한 토글).
-- MQTT 발행·DB 이력(`actuator_controls`)과의 연동은 §6.2를 따른다.
+- 명령 MQTT 발행·DB 이력(`actuator_controls`)은 §6.2, 보드가 보고하는 **실제 상태** 저장(`actuator_status`)은 §6.3을 따른다.
 
 ### 2.4 MQTT 연동 (Arduino ↔ 웹)
 
 - **브로커**: HiveMQ Cloud.
 - **센서**: Arduino **발행(Publish)** → 웹 측 **구독(Subscribe)** 후 화면·DB 반영.
-- **액츄에이터**: Arduino **구독(Subscribe)** → 웹에서 **발행(Publish)** 으로 명령 전달.
+- **액츄에이터(명령)**: Arduino **구독(Subscribe)** → 웹에서 **발행(Publish)** 으로 명령 전달(§6.2).
+- **액츄에이터(상태)**: Arduino **발행(Publish)** → 웹 **구독(Subscribe)** 후 `actuator_status` 반영(§6.3).
 - 토픽·페이로드 규격은 **§6**을 따른다.
 
 ---
@@ -59,7 +60,7 @@
 | 영역 | 내용 |
 |------|------|
 | **Sensor** | 실시간 또는 최신 센서 요약, §2.2 필터·정렬·차트. |
-| **Actuator** | §2.3 액츄에이터 ON/OFF 제어 버튼. |
+| **Actuator** | §2.3 액츄에이터 ON/OFF 제어 버튼 및 §6.3 기준 **보드 상태** 표시(가능할 때). |
 
 ---
 
@@ -96,7 +97,11 @@
 
 ### 5.4 `actuator_controls`
 
-- 액츄에이터 **ON/OFF 제어 이력**.
+- 액츄에이터 **ON/OFF 제어 이력**(웹·서버가 명령 발행 시 기록).
+
+### 5.4.1 `actuator_status`
+
+- 액츄에이터 **실제(보고된) 상태** — 보드가 §6.3 토픽으로 `{"state":"ON"|"OFF"}` 를 발행하면 웹이 수신·저장한다. 사용자(`owner_id`)와 `actuator_key` 조합당 **최신 1행**(upsert).
 
 ### 5.5 `alert_settings` (확장)
 
@@ -194,7 +199,7 @@ smartfarm/sensors
 
 - [ ] Supabase Auth 로그인·회원가입·보호 라우트
 - [ ] 대시보드: 센서 필터·정렬·라인차트·액츄에이터 버튼
-- [ ] DB: users, sensors, sensor_readings, actuator_controls (확장 테이블은 단계적)
+- [ ] DB: users, sensors, sensor_readings, actuator_controls, actuator_status (확장 테이블은 단계적)
 - [ ] HiveMQ 연동 및 §6 토픽·JSON 규약에 맞춘 Arduino·웹 연동
 - [ ] Vercel + GitHub CI/CD
 - [ ] §8에 따른 환경 변수(로컬 `web/.env.local`, 선택 `user/.env.local` 초안, Vercel)

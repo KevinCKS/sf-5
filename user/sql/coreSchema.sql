@@ -70,6 +70,24 @@ create index if not exists actuator_controls_owner_recorded_idx
 comment on table public.actuator_controls is '액츄에이터 ON/OFF 이력 — owner_id=소유 사용자';
 
 -- ---------------------------------------------------------------------------
+-- 4b) actuator_status — 보드가 보고한 실제 상태 (PRD §5·§6.3)
+-- ---------------------------------------------------------------------------
+create table if not exists public.actuator_status (
+  owner_id uuid not null references public.profiles (id) on delete cascade,
+  actuator_key text not null,
+  state text not null,
+  updated_at timestamptz not null default now(),
+  primary key (owner_id, actuator_key),
+  constraint actuator_status_key_chk check (actuator_key in ('led', 'pump', 'fan1', 'fan2')),
+  constraint actuator_status_state_chk check (state in ('ON', 'OFF'))
+);
+
+create index if not exists actuator_status_owner_updated_idx
+  on public.actuator_status (owner_id, updated_at desc);
+
+comment on table public.actuator_status is '액추 실제 상태(보드 §6.3) — owner_id·actuator_key별 최신';
+
+-- ---------------------------------------------------------------------------
 -- 5) 신규 가입 시 profiles 자동 생성
 -- ---------------------------------------------------------------------------
 create or replace function public.handle_new_user()
@@ -101,6 +119,7 @@ alter table public.profiles enable row level security;
 alter table public.sensors enable row level security;
 alter table public.sensor_readings enable row level security;
 alter table public.actuator_controls enable row level security;
+alter table public.actuator_status enable row level security;
 
 drop policy if exists "profiles_select_own" on public.profiles;
 create policy "profiles_select_own"
@@ -176,6 +195,13 @@ create policy "sensor_readings_delete_via_sensor"
 drop policy if exists "actuator_controls_all_owner" on public.actuator_controls;
 create policy "actuator_controls_all_owner"
   on public.actuator_controls for all
+  using (owner_id = auth.uid())
+  with check (owner_id = auth.uid());
+
+-- actuator_status: 본인 소유만
+drop policy if exists "actuator_status_all_owner" on public.actuator_status;
+create policy "actuator_status_all_owner"
+  on public.actuator_status for all
   using (owner_id = auth.uid())
   with check (owner_id = auth.uid());
 

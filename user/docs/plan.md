@@ -140,28 +140,31 @@
 
 **목표:** PRD §6.1(웹에서 연결·토픽 설정), §2.2 실시간/최신 반영.
 
-**현재(단계 6까지):** 센서 수신 → DB는 **브라우저 MQTT + `POST /api/sensors/ingest`**(로그인 사용자 기준)로 처리. 대시보드는 `sensor_readings` 조회로 최신값·차트 표시.
+**현재:** 센서 수신 → DB는 **브라우저 MQTT + `POST /api/sensors/ingest`**(로그인 사용자 기준). 대시보드는 `sensor_readings` 조회로 최신값·차트 표시.
 
-1. (향후, 권한 검증 하에) MQTT 구독 토픽·브로커 주소 등을 웹에서 저장/적용하는 UI 및 API — PRD의 “실시간 설정”에 해당.
-2. (완료 시) 수신 데이터가 `sensors`/`sensor_readings`·화면과 일관되게 반영.
+1. **설정 UI:** 대시보드 `MqttBrowserBridge` — 브로커 WebSocket URL·사용자명·비밀번호 편집, **이 브라우저에 저장**(localStorage). 기본값은 `NEXT_PUBLIC_MQTT_*` , 비밀번호 비우면 env 폴백. 센서 구독 토픽은 PRD §6.1·`allowlist` 에 따라 `smartfarm/sensors` 고정 표시(액추는 단계 9).
+2. **저장 후 적용:** 저장 시 연결 중이면 끊고, **연결 끊기 → MQTT 연결**로 재적용.
 
-**완료 기준:** **단계 7** 보드(또는 MQTTX) 발행분이 DB·대시보드에 반영되고, (선택) 웹에서 MQTT 관련 설정을 바꿀 수 있다.
+**완료 기준:** **단계 7** 보드(또는 MQTTX) 발행분이 DB·대시보드에 반영되고, 웹에서 브로커 자격 증명을 바꿔 재연결할 수 있다.
 
-**테스트·검증:** Table Editor·대시보드 수치 일치. 설정 UI를 넣은 경우에만 토픽 변경·재연결 확인.
+**테스트·검증:** Table Editor·대시보드 수치 일치. 설정 저장 후 재연결·발행 반영 확인.
 
 ---
 
-## 단계 9 — 액츄에이터: UI·MQTT 발행·이력
+## 단계 9 — 액츄에이터: UI·MQTT 발행·이력·상태 보고(§6.3)
 
-**목표:** PRD §2.3, §6.2.
+**목표:** PRD §2.3, §6.2, §6.3.
 
-1. LED, Pump, FAN1, FAN2 각각 ON/OFF UI.
-2. 클릭 시 `{"state":"ON"|"OFF"}` 로 해당 토픽에 **발행**(서버 경유).
-3. `actuator_controls`에 이력 저장.
+1. 대시보드 **Actuator** 패널: LED·Pump·FAN1·FAN2 각각 **ON / OFF** 버튼 (`ActuatorPanel`).
+2. 클릭 시 `POST /api/mqtt/publish` — `{"state":"ON"|"OFF"}` + allowlist 토픽, 서버가 HiveMQ(`MQTT_*` env)로 발행.
+3. 발행 성공 후 같은 요청에서 `actuator_controls`에 이력 삽입(`owner_id`, `actuator_key`, `state`, `triggered_by`).
+4. **GET `/api/actuator-controls`** — 본인 최근 이력(패널 하단 목록). **DELETE** 로 본인 이력 비우기(선택 구현).
+5. **§6.3** 보드가 `smartfarm/actuators/status/{led|pump|fan1|fan2}` 로 `{"state":"ON"|"OFF"}` 발행 → 브라우저 MQTT가 `smartfarm/actuators/status/#` 구독 → `POST /api/actuators/status/ingest` → **`actuator_status`** upsert.
+6. **GET `/api/actuators/status`** — 패널에 **보드 상태** 표시. 테이블·RLS: `user/sql/coreSchema.sql` 또는 `user/sql/addActuatorStatusTable.sql`.
 
-**완료 기준:** **단계 7** 보드가 명령을 수신하고(시리얼), DB에 이력이 남는다. MQTTX로도 동일 검증 가능.
+**완료 기준:** 명령 수신(시리얼) + 이력 DB + (MQTT 연결 시) 상태 토픽 수신 후 `actuator_status`·UI 반영.
 
-**테스트·검증:** 각 버튼 ON/OFF → 브로커 → Arduino 시리얼·이력 테이블 순으로 확인.
+**테스트·검증:** 버튼 ON/OFF → 브로커 → Arduino 시리얼·`actuator_controls` → §6.3 발행 → Web Client/MQTTX·대시보드 보드 상태.
 
 ---
 
