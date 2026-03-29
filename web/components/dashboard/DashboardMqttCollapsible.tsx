@@ -1,21 +1,23 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useState, memo } from "react";
 import { ChevronDown, X } from "lucide-react";
 import { MqttBrowserSettings } from "@/components/dashboard/MqttBrowserSettings";
 import { MqttConnectionBar } from "@/components/dashboard/MqttConnectionBar";
 import { cn } from "@/lib/utils";
 
 /** 대시보드 우측 — MQTT 설정(접힘 시 한 줄 칩, 펼침 시 다른 카드 위 오버레이) */
-export function DashboardMqttCollapsible() {
+export const DashboardMqttCollapsible = memo(function DashboardMqttCollapsible() {
   const [open, setOpen] = useState(false);
+  const openPanel = useCallback(() => setOpen(true), []);
+  const closePanel = useCallback(() => setOpen(false), []);
 
   return (
     <div className="relative">
       {/* 접힘: xl에서는 글자+아이콘을 카드 안에서 가운데 정렬(양쪽 여백 균형) */}
       <button
         type="button"
-        onClick={() => setOpen(true)}
+        onClick={openPanel}
         className={cn(
           "dashboard-surface flex w-full items-center justify-between gap-2 px-3 py-3 text-left text-sm font-medium transition-opacity duration-200",
           "xl:justify-center xl:gap-2 xl:px-3 xl:py-[0.55rem] xl:text-center",
@@ -39,7 +41,7 @@ export function DashboardMqttCollapsible() {
         <>
           <div
             className="fixed inset-0 z-40 bg-background/50 backdrop-blur-[2px]"
-            onClick={() => setOpen(false)}
+            onClick={closePanel}
             aria-hidden
           />
           <div
@@ -62,7 +64,7 @@ export function DashboardMqttCollapsible() {
               <button
                 type="button"
                 className="text-muted-foreground hover:bg-muted/60 hover:text-foreground inline-flex size-8 items-center justify-center rounded-md transition-colors"
-                onClick={() => setOpen(false)}
+                onClick={closePanel}
                 aria-label="MQTT 설정 닫기"
               >
                 <X className="size-4" />
@@ -77,4 +79,4 @@ export function DashboardMqttCollapsible() {
       ) : null}
     </div>
   );
-}
+});

@@ -1,6 +1,14 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  startTransition,
+  memo,
+} from "react";
 import { Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -12,13 +20,14 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { KO_SHORT_DATETIME } from "@/lib/datetime/koShortDateTime";
+import {
+  dashboardFetchInit,
+  dashboardJsonFetchInit,
+  mqttBackgroundFetchInit,
+} from "@/lib/http/dashboardFetchInit";
 import { parseResponseBodyJson } from "@/lib/http/parseResponseBodyJson";
-import { SENSOR_TYPE_FILTERS } from "@/lib/sensors/constants";
-
-/** 센서 타입 → 짧은 한글 라벨 */
-function typeLabel(t: string): string {
-  return SENSOR_TYPE_FILTERS.find((x) => x.type === t)?.label ?? t;
-}
+import { sensorTypeLabel } from "@/lib/sensors/constants";
 
 type SensorRow = {
   id: string;
@@ -43,6 +52,181 @@ type LogRow = {
   created_at: string;
 };
 
+/** 동일 알림 이력이면 참조 유지 — silent 새로고침 시 logRowsPrepared·목록 재계산 생략 */
+function sameLogRows(a: LogRow[], b: LogRow[]): boolean {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    const x = a[i]!;
+    const y = b[i]!;
+    if (
+      x.id !== y.id ||
+      x.message !== y.message ||
+      x.created_at !== y.created_at
+    ) {
+      return false;
+    }
+  }
+  return true;
+}
+
+/** API 센서 목록 순서 동일·행 동일 시 참조 유지 */
+function sameSensorRowsAlert(a: SensorRow[], b: SensorRow[]): boolean {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    const x = a[i]!;
+    const y = b[i]!;
+    if (
+      x.id !== y.id ||
+      x.name !== y.name ||
+      x.sensor_type !== y.sensor_type ||
+      x.unit !== y.unit ||
+      x.zone_name !== y.zone_name
+    ) {
+      return false;
+    }
+  }
+  return true;
+}
+
+/** 임계치 설정 — sensor_id 기준 매칭(응답 순서 달라도 동일하면 참조 유지) */
+function sameSettingsApi(a: SettingApi[], b: SettingApi[]): boolean {
+  if (a.length !== b.length) return false;
+  const mapB = new Map(b.map((x) => [x.sensor_id, x] as const));
+  for (const x of a) {
+    const y = mapB.get(x.sensor_id);
+    if (
+      !y ||
+      x.min_value !== y.min_value ||
+      x.max_value !== y.max_value ||
+      x.enabled !== y.enabled
+    ) {
+      return false;
+    }
+  }
+  return true;
+}
+
+/** 초안 입력값 동일 시 참조 유지 */
+function sameDraftsRecord(
+  a: Record<string, Draft>,
+  b: Record<string, Draft>,
+): boolean {
+  const keysA = Object.keys(a);
+  const keysB = Object.keys(b);
+  if (keysA.length !== keysB.length) return false;
+  for (const k of keysB) {
+    const da = a[k];
+    const db = b[k];
+    if (
+      !da ||
+      !db ||
+      da.min !== db.min ||
+      da.max !== db.max ||
+      da.enabled !== db.enabled
+    ) {
+      return false;
+    }
+  }
+  return true;
+}
+
+/** 알림 로그 한 줄 — 상단 입력 상태만 바뀔 때 목록 DOM 재생성 완화 */
+const AlertLogListItem = memo(function AlertLogListItem({
+  createdLabel,
+  message,
+}: {
+  createdLabel: string;
+  message: string;
+}) {
+  return (
+    <li className="[contain-intrinsic-size:auto_4rem] [content-visibility:auto] border-b border-border/40 pb-2 last:border-0">
+      <span className="text-muted-foreground text-xs">{createdLabel}</span>
+      <p className="mt-0.5">{message}</p>
+    </li>
+  );
+});
+
+type AlertSensorSettingsRowProps = {
+  sensor: SensorRow;
+  draft: Draft;
+  hasSetting: boolean;
+  isSaving: boolean;
+  updateDraft: (sensorId: string, patch: Partial<Draft>) => void;
+  onSave: (sensorId: string) => void | Promise<void>;
+};
+
+/** 임계치 표 한 행 — 다른 센서 행 입력·저장 시 참조 동일하면 리렌더 생략 */
+const AlertSensorSettingsRow = memo(function AlertSensorSettingsRow({
+  sensor,
+  draft,
+  hasSetting,
+  isSaving,
+  updateDraft,
+  onSave,
+}: AlertSensorSettingsRowProps) {
+  return (
+    <tr className="border-b border-border/60 [&>td]:py-2 [&>td]:align-middle">
+      <td className="pr-3 font-medium">{sensor.name}</td>
+      <td className="text-muted-foreground pr-3">
+        {sensorTypeLabel(sensor.sensor_type)}
+        {sensor.unit ? ` (${sensor.unit})` : ""}
+      </td>
+      <td className="pr-3">
+        <Input
+          className="h-8 w-24"
+          inputMode="decimal"
+          value={draft.min}
+          onChange={(e) => updateDraft(sensor.id, { min: e.target.value })}
+          aria-label={`${sensor.name} 하한`}
+        />
+      </td>
+      <td className="pr-3">
+        <Input
+          className="h-8 w-24"
+          inputMode="decimal"
+          value={draft.max}
+          onChange={(e) => updateDraft(sensor.id, { max: e.target.value })}
+          aria-label={`${sensor.name} 상한`}
+        />
+      </td>
+      <td className="pr-3">
+        <label className="flex h-8 cursor-pointer items-center gap-2">
+          <input
+            type="checkbox"
+            checked={draft.enabled}
+            onChange={(e) =>
+              updateDraft(sensor.id, { enabled: e.target.checked })
+            }
+            className="accent-primary h-4 w-4 rounded border"
+          />
+          <span className="sr-only">활성</span>
+        </label>
+      </td>
+      <td className="w-[5.5rem]">
+        <Button
+          type="button"
+          size="sm"
+          variant="secondary"
+          disabled={isSaving}
+          className="h-8 w-[5.25rem] shrink-0 px-0"
+          onClick={() => void onSave(sensor.id)}
+        >
+          {isSaving ? (
+            <Loader2
+              className="mx-auto h-4 w-4 animate-spin"
+              aria-label="저장 중"
+            />
+          ) : hasSetting ? (
+            "저장"
+          ) : (
+            "등록"
+          )}
+        </Button>
+      </td>
+    </tr>
+  );
+});
+
 /** Alert 탭 — 임계치 설정·이력·시뮬레이션 (PRD §5.5–5.6) */
 export function AlertPanel() {
   const [sensors, setSensors] = useState<SensorRow[]>([]);
@@ -58,6 +242,10 @@ export function AlertPanel() {
   const [simValue, setSimValue] = useState<string>("");
   const [simBusy, setSimBusy] = useState(false);
 
+  /** saveRow 가 최신 drafts 를 읽도록 — useCallback 의존성에 drafts 전체를 넣지 않음 */
+  const draftsRef = useRef(drafts);
+  draftsRef.current = drafts;
+
   const settingsBySensor = useMemo(() => {
     const m = new Map<string, SettingApi>();
     for (const s of settings) {
@@ -66,29 +254,68 @@ export function AlertPanel() {
     return m;
   }, [settings]);
 
+  /** 알림 시각 문자열 — 동일 created_at 은 Intl 1회만 */
+  const logRowsPrepared = useMemo(() => {
+    const labelByCreated = new Map<string, string>();
+    return logs.map((log) => {
+      let createdLabel = labelByCreated.get(log.created_at);
+      if (createdLabel === undefined) {
+        createdLabel = KO_SHORT_DATETIME.format(new Date(log.created_at));
+        labelByCreated.set(log.created_at, createdLabel);
+      }
+      return {
+        id: log.id,
+        message: log.message,
+        createdLabel,
+      };
+    });
+  }, [logs]);
+
+  /** 연속 loadAll 시 이전 병렬 요청 취소·stale 응답 무시 */
+  const loadAllSeqRef = useRef(0);
+  const loadAllAbortRef = useRef<AbortController | null>(null);
+
+  useEffect(() => {
+    return () => {
+      loadAllAbortRef.current?.abort();
+    };
+  }, []);
+
   /** silent: 저장 후·새로고침 시 전체 화면 스피너 없이 데이터만 갱신 */
   const loadAll = useCallback(async (opts?: { silent?: boolean }) => {
     const silent = opts?.silent === true;
+    const seq = ++loadAllSeqRef.current;
+    loadAllAbortRef.current?.abort();
+    const ac = new AbortController();
+    loadAllAbortRef.current = ac;
+    const { signal } = ac;
+
     setError(null);
     if (!silent) {
       setLoading(true);
     }
     setLogsLoading(true);
     try {
+      const init = dashboardFetchInit(signal, { silent });
       const [resS, resSt, resL] = await Promise.all([
-        fetch("/api/sensors", { credentials: "include" }),
-        fetch("/api/alert-settings", { credentials: "include" }),
-        fetch("/api/alert-logs?limit=50", { credentials: "include" }),
+        fetch("/api/sensors", init),
+        fetch("/api/alert-settings", init),
+        fetch("/api/alert-logs?limit=50", init),
       ]);
 
-      const pS = await parseResponseBodyJson<{ sensors?: SensorRow[]; error?: string }>(
-        resS,
-      );
-      const pSt = await parseResponseBodyJson<{
-        settings?: SettingApi[];
-        error?: string;
-      }>(resSt);
-      const pL = await parseResponseBodyJson<{ logs?: LogRow[]; error?: string }>(resL);
+      if (seq !== loadAllSeqRef.current) return;
+
+      // 본문 파싱을 병렬로 — 세 응답의 JSON 파싱이 순차 대기하지 않음
+      const [pS, pSt, pL] = await Promise.all([
+        parseResponseBodyJson<{ sensors?: SensorRow[]; error?: string }>(resS),
+        parseResponseBodyJson<{
+          settings?: SettingApi[];
+          error?: string;
+        }>(resSt),
+        parseResponseBodyJson<{ logs?: LogRow[]; error?: string }>(resL),
+      ]);
+
+      if (seq !== loadAllSeqRef.current) return;
 
       if (!pS.parseOk) {
         setError(pS.fallbackMessage);
@@ -117,31 +344,47 @@ export function AlertPanel() {
 
       const sensorList = pS.data.sensors ?? [];
       const stList = pSt.data.settings ?? [];
-      setSensors(sensorList);
-      setSettings(
-        stList.map((r) => ({
-          sensor_id: r.sensor_id,
-          min_value: r.min_value,
-          max_value: r.max_value,
-          enabled: r.enabled ?? true,
-        })),
-      );
+      const nextSettings = stList.map((r) => ({
+        sensor_id: r.sensor_id,
+        min_value: r.min_value,
+        max_value: r.max_value,
+        enabled: r.enabled ?? true,
+      }));
+      const commitData = () => {
+        setSensors((prev) =>
+          sameSensorRowsAlert(prev, sensorList) ? prev : sensorList,
+        );
+        setSettings((prev) =>
+          sameSettingsApi(prev, nextSettings) ? prev : nextSettings,
+        );
 
-      const nextDrafts: Record<string, Draft> = {};
-      for (const s of sensorList) {
-        const st = stList.find((x) => x.sensor_id === s.id);
-        nextDrafts[s.id] = {
-          min: st?.min_value != null ? String(st.min_value) : "",
-          max: st?.max_value != null ? String(st.max_value) : "",
-          enabled: st?.enabled ?? true,
-        };
-      }
-      setDrafts(nextDrafts);
-      setLogs(pL.data.logs ?? []);
-      setSimSensorId((prev) => prev || sensorList[0]?.id || "");
+        const stBySensorId = new Map(
+          stList.map((x) => [x.sensor_id, x] as const),
+        );
+        const nextDrafts: Record<string, Draft> = {};
+        for (const s of sensorList) {
+          const st = stBySensorId.get(s.id);
+          nextDrafts[s.id] = {
+            min: st?.min_value != null ? String(st.min_value) : "",
+            max: st?.max_value != null ? String(st.max_value) : "",
+            enabled: st?.enabled ?? true,
+          };
+        }
+        setDrafts((prev) =>
+          sameDraftsRecord(prev, nextDrafts) ? prev : nextDrafts,
+        );
+        const nextLogs = pL.data.logs ?? [];
+        setLogs((prev) => (sameLogRows(prev, nextLogs) ? prev : nextLogs));
+        setSimSensorId((prev) => prev || sensorList[0]?.id || "");
+      };
+      if (silent) startTransition(commitData);
+      else commitData();
     } catch {
+      if (seq !== loadAllSeqRef.current) return;
+      if (ac.signal.aborted) return;
       setError("네트워크 오류가 발생했습니다.");
     } finally {
+      if (seq !== loadAllSeqRef.current) return;
       if (!silent) {
         setLoading(false);
       }
@@ -153,21 +396,27 @@ export function AlertPanel() {
     void loadAll();
   }, [loadAll]);
 
-  async function saveRow(sensorId: string) {
-    const d = drafts[sensorId];
+  /** 알림 이력 새로고침 — 인라인 람다 대신 안정 참조 */
+  const refreshLogs = useCallback(() => {
+    void loadAll({ silent: true });
+  }, [loadAll]);
+
+  const saveRow = useCallback(async (sensorId: string) => {
+    const d = draftsRef.current[sensorId];
     if (!d) return;
     setSavingId(sensorId);
     setError(null);
     try {
       const res = await fetch("/api/alert-settings", {
         method: "PUT",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          sensor_id: sensorId,
-          min_value: d.min.trim() === "" ? null : Number(d.min),
-          max_value: d.max.trim() === "" ? null : Number(d.max),
-          enabled: d.enabled,
+        ...dashboardJsonFetchInit({
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            sensor_id: sensorId,
+            min_value: d.min.trim() === "" ? null : Number(d.min),
+            max_value: d.max.trim() === "" ? null : Number(d.max),
+            enabled: d.enabled,
+          }),
         }),
       });
       const parsed = await parseResponseBodyJson<{
@@ -189,35 +438,38 @@ export function AlertPanel() {
         return;
       }
       const st = parsed.data.setting;
-      if (st) {
-        setSettings((prev) => {
-          const rest = prev.filter((x) => x.sensor_id !== st.sensor_id);
-          return [
-            ...rest,
-            {
-              sensor_id: st.sensor_id,
-              min_value: st.min_value,
-              max_value: st.max_value,
+      // 설정·draft·안내 갱신을 전환으로 묶어 저장 직후 입력·스크롤 반응성 유지
+      startTransition(() => {
+        if (st) {
+          setSettings((prev) => {
+            const rest = prev.filter((x) => x.sensor_id !== st.sensor_id);
+            return [
+              ...rest,
+              {
+                sensor_id: st.sensor_id,
+                min_value: st.min_value,
+                max_value: st.max_value,
+                enabled: st.enabled ?? true,
+              },
+            ];
+          });
+          setDrafts((prev) => ({
+            ...prev,
+            [st.sensor_id]: {
+              min: st.min_value != null ? String(st.min_value) : "",
+              max: st.max_value != null ? String(st.max_value) : "",
               enabled: st.enabled ?? true,
             },
-          ];
-        });
-        setDrafts((prev) => ({
-          ...prev,
-          [st.sensor_id]: {
-            min: st.min_value != null ? String(st.min_value) : "",
-            max: st.max_value != null ? String(st.max_value) : "",
-            enabled: st.enabled ?? true,
-          },
-        }));
-      }
-      setNotice("저장했습니다.");
+          }));
+        }
+        setNotice("저장했습니다.");
+      });
     } catch {
       setError("네트워크 오류가 발생했습니다.");
     } finally {
       setSavingId(null);
     }
-  }
+  }, []);
 
   async function runSimulate() {
     if (!simSensorId) {
@@ -235,9 +487,10 @@ export function AlertPanel() {
     try {
       const res = await fetch("/api/alerts/simulate", {
         method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ sensor_id: simSensorId, value: v }),
+        ...dashboardJsonFetchInit({
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ sensor_id: simSensorId, value: v }),
+        }),
       });
       const parsed = await parseResponseBodyJson<{
         ok?: boolean;
@@ -253,15 +506,23 @@ export function AlertPanel() {
         return;
       }
       const n = parsed.data.alertsLogged ?? 0;
+      // 로그 조회를 알림 문구 갱신보다 먼저 시작해 네트워크 RTT 를 앞당김
+      const logsPromise = fetch(
+        "/api/alert-logs?limit=50",
+        mqttBackgroundFetchInit(),
+      );
       setNotice(
         n > 0
           ? `임계치 초과로 알림 ${n}건을 기록했습니다.`
           : "임계치를 벗어나지 않았거나 비활성 설정입니다. 알림 로그가 추가되지 않았습니다.",
       );
-      const resL = await fetch("/api/alert-logs?limit=50", { credentials: "include" });
+      const resL = await logsPromise;
       const pL = await parseResponseBodyJson<{ logs?: LogRow[] }>(resL);
       if (pL.parseOk && resL.ok && pL.data.logs) {
-        setLogs(pL.data.logs);
+        const nextLogs = pL.data.logs;
+        startTransition(() => {
+          setLogs((prev) => (sameLogRows(prev, nextLogs) ? prev : nextLogs));
+        });
       }
     } catch {
       setError("네트워크 오류가 발생했습니다.");
@@ -270,12 +531,13 @@ export function AlertPanel() {
     }
   }
 
-  function updateDraft(sensorId: string, patch: Partial<Draft>) {
+  /** 입력 핸들러가 매 렌더마다 새 함수를 받지 않도록 고정 — 자식 리렌더·메모 비용 완화 */
+  const updateDraft = useCallback((sensorId: string, patch: Partial<Draft>) => {
     setDrafts((prev) => ({
       ...prev,
       [sensorId]: { ...prev[sensorId]!, ...patch },
     }));
-  }
+  }, []);
 
   if (loading) {
     return (
@@ -339,68 +601,17 @@ export function AlertPanel() {
               <tbody>
                 {sensors.map((s) => {
                   const d = drafts[s.id];
-                  const hasSetting = settingsBySensor.has(s.id);
                   if (!d) return null;
                   return (
-                    <tr key={s.id} className="border-b border-border/60 [&>td]:py-2 [&>td]:align-middle">
-                      <td className="pr-3 font-medium">{s.name}</td>
-                      <td className="text-muted-foreground pr-3">
-                        {typeLabel(s.sensor_type)}
-                        {s.unit ? ` (${s.unit})` : ""}
-                      </td>
-                      <td className="pr-3">
-                        <Input
-                          className="h-8 w-24"
-                          inputMode="decimal"
-                          value={d.min}
-                          onChange={(e) => updateDraft(s.id, { min: e.target.value })}
-                          aria-label={`${s.name} 하한`}
-                        />
-                      </td>
-                      <td className="pr-3">
-                        <Input
-                          className="h-8 w-24"
-                          inputMode="decimal"
-                          value={d.max}
-                          onChange={(e) => updateDraft(s.id, { max: e.target.value })}
-                          aria-label={`${s.name} 상한`}
-                        />
-                      </td>
-                      <td className="pr-3">
-                        <label className="flex h-8 cursor-pointer items-center gap-2">
-                          <input
-                            type="checkbox"
-                            checked={d.enabled}
-                            onChange={(e) =>
-                              updateDraft(s.id, { enabled: e.target.checked })
-                            }
-                            className="accent-primary h-4 w-4 rounded border"
-                          />
-                          <span className="sr-only">활성</span>
-                        </label>
-                      </td>
-                      <td className="w-[5.5rem]">
-                        <Button
-                          type="button"
-                          size="sm"
-                          variant="secondary"
-                          disabled={savingId === s.id}
-                          className="h-8 w-[5.25rem] shrink-0 px-0"
-                          onClick={() => void saveRow(s.id)}
-                        >
-                          {savingId === s.id ? (
-                            <Loader2
-                              className="mx-auto h-4 w-4 animate-spin"
-                              aria-label="저장 중"
-                            />
-                          ) : hasSetting ? (
-                            "저장"
-                          ) : (
-                            "등록"
-                          )}
-                        </Button>
-                      </td>
-                    </tr>
+                    <AlertSensorSettingsRow
+                      key={s.id}
+                      sensor={s}
+                      draft={d}
+                      hasSetting={settingsBySensor.has(s.id)}
+                      isSaving={savingId === s.id}
+                      updateDraft={updateDraft}
+                      onSave={saveRow}
+                    />
                   );
                 })}
               </tbody>
@@ -430,7 +641,7 @@ export function AlertPanel() {
               <SelectContent>
                 {sensors.map((s) => (
                   <SelectItem key={s.id} value={s.id}>
-                    {s.name} ({typeLabel(s.sensor_type)})
+                    {s.name} ({sensorTypeLabel(s.sensor_type)})
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -471,7 +682,7 @@ export function AlertPanel() {
             type="button"
             variant="outline"
             size="sm"
-            onClick={() => void loadAll({ silent: true })}
+            onClick={refreshLogs}
             disabled={logsLoading}
           >
             새로고침
@@ -484,17 +695,13 @@ export function AlertPanel() {
             기록된 알림이 없습니다. 임계치를 저장한 뒤 시뮬레이션이나 MQTT 수신을 시도해 보세요.
           </p>
         ) : (
-          <ul className="mt-4 space-y-2 text-sm">
-            {logs.map((log) => (
-              <li
+          <ul className="mt-4 max-h-[min(50vh,420px)] space-y-2 overflow-y-auto pr-1 text-sm">
+            {logRowsPrepared.map((log) => (
+              <AlertLogListItem
                 key={log.id}
-                className="border-b border-border/40 pb-2 last:border-0"
-              >
-                <span className="text-muted-foreground text-xs">
-                  {new Date(log.created_at).toLocaleString("ko-KR")}
-                </span>
-                <p className="mt-0.5">{log.message}</p>
-              </li>
+                createdLabel={log.createdLabel}
+                message={log.message}
+              />
             ))}
           </ul>
         )}

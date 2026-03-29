@@ -6,6 +6,16 @@ export const SENSOR_TYPE_FILTERS = [
   { type: "ph", label: "pH" },
 ] as const;
 
+/** 타입 id → 한글 라벨 — 렌더 루프에서 반복 .find 대신 O(1) 조회 */
+export const SENSOR_TYPE_LABEL_BY_ID: ReadonlyMap<string, string> = new Map(
+  SENSOR_TYPE_FILTERS.map((x) => [x.type, x.label]),
+);
+
+/** DB·MQTT 등에서 온 sensor_type 문자열을 한글 라벨로 변환(미등록은 원문 유지) */
+export function sensorTypeLabel(typeId: string): string {
+  return SENSOR_TYPE_LABEL_BY_ID.get(typeId) ?? typeId;
+}
+
 export type SensorTypeId = (typeof SENSOR_TYPE_FILTERS)[number]["type"];
 
 /** 정렬 옵션 — GET /api/sensor-readings 의 `sort` 와 동일. DB 테이블 화면(예정) 탭에서 사용 예정 */

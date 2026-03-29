@@ -1,3 +1,4 @@
+import { memo } from "react";
 import { Loader2 } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 
@@ -38,8 +39,8 @@ export function PanelState({
   );
 }
 
-/** 로딩 — 스켈레톤 + 스피너 */
-function LoadingBlock() {
+/** 로딩 — 스켈레톤 + 스피너(제목만 바뀔 때 스켈레톤 재마운트 생략) */
+const LoadingBlock = memo(function LoadingBlock() {
   return (
     <div className="flex flex-col gap-3" role="status" aria-label="불러오는 중">
       <div className="flex items-center gap-2 text-sm text-muted-foreground">
@@ -51,10 +52,10 @@ function LoadingBlock() {
       <Skeleton className="h-24 w-full rounded-md" />
     </div>
   );
-}
+});
 
 /** 빈 데이터 */
-function EmptyBlock({ message }: { message: string }) {
+const EmptyBlock = memo(function EmptyBlock({ message }: { message: string }) {
   return (
     <div
       className="flex min-h-[120px] flex-col items-center justify-center rounded-md border border-dashed bg-muted/30 px-4 py-8 text-center text-sm text-muted-foreground"
@@ -63,10 +64,10 @@ function EmptyBlock({ message }: { message: string }) {
       {message}
     </div>
   );
-}
+});
 
 /** API/네트워크 오류 */
-function ErrorBlock({ message }: { message: string }) {
+const ErrorBlock = memo(function ErrorBlock({ message }: { message: string }) {
   return (
     <div
       className="flex min-h-[120px] flex-col items-center justify-center rounded-md border border-destructive/30 bg-destructive/5 px-4 py-8 text-center text-sm text-destructive"
@@ -75,4 +76,4 @@ function ErrorBlock({ message }: { message: string }) {
       {message}
     </div>
   );
-}
+});

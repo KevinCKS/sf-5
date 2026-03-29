@@ -1,71 +1,122 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
 import {
-  CartesianGrid,
-  Line,
-  LineChart,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from "recharts";
+  useCallback,
+  useDeferredValue,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  startTransition,
+  memo,
+} from "react";
+import dynamic from "next/dynamic";
 import { Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { SENSOR_TYPE_FILTERS } from "@/lib/sensors/constants";
 import {
-  latestByType,
+  latestAndUnitByTypeFromRows,
+  sameSensorReadingRows,
   type SensorReadingRow,
 } from "@/lib/sensors/queryReadings";
 import {
   MqttBrowserSettings,
-  useMqttBrowser,
+  useMqttConnectionCore,
 } from "@/components/dashboard/MqttBrowserBridge";
+import { SensorTypeCheckbox } from "@/components/dashboard/SensorTypeCheckbox";
+import type { SensorChartPoint } from "@/components/dashboard/SensorLiveChartsBlock";
+import { dashboardFetchInit } from "@/lib/http/dashboardFetchInit";
 import { parseResponseBodyJson } from "@/lib/http/parseResponseBodyJson";
+import { requestClearAllSensorReadings } from "@/lib/http/sensorReadingsClient";
 
-/** 테마 --chart-* 는 oklch 이므로 hsl() 로 감싸지 않음 (감싸면 무효 색 → 선 미표시) */
-const CHART_COLORS = [
-  "var(--chart-1)",
-  "var(--chart-2)",
-  "var(--chart-3)",
-  "var(--chart-4)",
-  "var(--chart-5)",
-];
+/** Recharts 청크 지연 로드 — 메인 번들에서 차트 라이브러리 제외 */
+const SensorLiveChartsBlock = dynamic(
+  () =>
+    import("@/components/dashboard/SensorLiveChartsBlock").then(
+      (m) => m.SensorLiveChartsBlock,
+    ),
+  {
+    loading: () => (
+      <div
+        className="mt-4 flex min-h-[220px] items-center justify-center gap-2 text-muted-foreground text-sm"
+        role="status"
+      >
+        <Loader2 className="h-5 w-5 shrink-0 animate-spin" aria-hidden />
+        차트 영역을 불러오는 중…
+      </div>
+    ),
+    ssr: false,
+  },
+);
 
 /** 실시간(최근 1시간) 조회 구간·자동 폴링 간격 */
 const LIVE_WINDOW_MS = 60 * 60 * 1000;
 const LIVE_POLL_MS = 30 * 1000;
 
-/** 시계열 → Recharts용 넓은 형식(타입별 컬럼) */
-function pivotChartRows(rows: SensorReadingRow[], types: string[]) {
-  const activeTypes = types.filter((t) => rows.some((r) => r.sensor_type === t));
-  if (activeTypes.length === 0) return [];
+/** Recharts용 시계열 피벗 — 타입·시간 인덱스·라벨 포맷 비용 완화 */
+const CHART_TIME_LABEL_FMT = new Intl.DateTimeFormat("ko-KR", {
+  month: "short",
+  day: "numeric",
+  hour: "2-digit",
+  minute: "2-digit",
+});
 
-  const times = [
-    ...new Set(
-      rows
-        .filter((r) => activeTypes.includes(r.sensor_type))
-        .map((r) => r.recorded_at),
-    ),
-  ].sort(
-    (a, b) => new Date(a).getTime() - new Date(b).getTime(),
-  );
+/** Recharts 포인트·Intl 포맷 횟수 상한 — 초당 다건 적재 시에도 메인 스레드 부담 완화 */
+const MAX_CHART_TIME_POINTS = 400;
+
+/** ISO 시각 축 희소 샘플(시계열 순서 유지, 끝 시각 포함) */
+function sampleSortedIsoTimes(times: string[]): string[] {
+  if (times.length <= MAX_CHART_TIME_POINTS) return times;
+  const stride = Math.ceil(times.length / MAX_CHART_TIME_POINTS);
+  const out: string[] = [];
+  for (let i = 0; i < times.length; i += stride) {
+    out.push(times[i]!);
+  }
+  const last = times[times.length - 1]!;
+  if (out[out.length - 1] !== last) out.push(last);
+  return out;
+}
+
+/** rows에 실제로 존재하는 타입만 담긴 목록을 넘길 것 (호출부 typesList가 보장) — 한 번 순회로 피벗 */
+function pivotChartRows(
+  rows: SensorReadingRow[],
+  types: string[],
+): SensorChartPoint[] {
+  if (types.length === 0) return [];
+
+  const activeTypes = types;
+  const activeTypeSet = new Set(activeTypes);
+  /** 시각 → 타입 → 값 — 복합 문자열 키 할당 없이 조회 */
+  const valueByTime = new Map<string, Map<string, number>>();
+  const timeSet = new Set<string>();
+  for (const r of rows) {
+    if (!activeTypeSet.has(r.sensor_type)) continue;
+    timeSet.add(r.recorded_at);
+    let inner = valueByTime.get(r.recorded_at);
+    if (!inner) {
+      inner = new Map();
+      valueByTime.set(r.recorded_at, inner);
+    }
+    if (!inner.has(r.sensor_type)) {
+      inner.set(r.sensor_type, r.value);
+    }
+  }
+
+  // ISO8601 문자열은 사전순 = 시계열 순서 — localeCompare 대비 비용 완화
+  const sorted = [...timeSet].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+  const times = sampleSortedIsoTimes(sorted);
 
   return times.map((t) => {
     // 결측은 NaN 대신 null — Recharts Tooltip 이 NaN을 렌더링하면 React 오류 발생
+    const inner = valueByTime.get(t);
     const point: Record<string, string | number | null> = {
       time: t,
-      timeLabel: new Date(t).toLocaleString("ko-KR", {
-        month: "short",
-        day: "numeric",
-        hour: "2-digit",
-        minute: "2-digit",
-      }),
+      timeLabel: CHART_TIME_LABEL_FMT.format(new Date(t)),
     };
     for (const ty of activeTypes) {
-      const hit = rows.find((r) => r.recorded_at === t && r.sensor_type === ty);
-      point[ty] = hit ? hit.value : null;
+      const v = inner?.get(ty);
+      point[ty] = v !== undefined ? v : null;
     }
     return point;
   });
@@ -77,6 +128,75 @@ type SensorDashboardProps = {
   /** true: 측정 이력 전체 삭제 버튼 숨김(DB 탭 전용 테이블로 이동) */
   hideClearReadings?: boolean;
 };
+
+type SensorDashboardFilterBlockProps = {
+  hideClearReadings: boolean;
+  clearingReadings: boolean;
+  onClearReadingsClick: () => void;
+  refetchData: () => void;
+  notice: string | null;
+  selectedTypes: Set<string>;
+  toggleType: (type: string) => void;
+};
+
+/** 타입 필터·조회 버튼 — rows/MQTT 힌트만 바뀔 때 체크박스·버튼 DOM 재생성 생략(Context 없음) */
+const SensorDashboardFilterBlock = memo(function SensorDashboardFilterBlock({
+  hideClearReadings,
+  clearingReadings,
+  onClearReadingsClick,
+  refetchData,
+  notice,
+  selectedTypes,
+  toggleType,
+}: SensorDashboardFilterBlockProps) {
+  return (
+    <div className="mt-4 space-y-4">
+      <p className="text-muted-foreground text-xs leading-relaxed">
+        최근 1시간 구간 · 약 {LIVE_POLL_MS / 1000}초마다 자동 조회 · MQTT로
+        저장되면 즉시 반영
+      </p>
+
+      <div className="space-y-2">
+        <Label>센서 타입</Label>
+        <div className="flex flex-wrap gap-3">
+          {SENSOR_TYPE_FILTERS.map(({ type, label }) => (
+            <SensorTypeCheckbox
+              key={type}
+              type={type}
+              label={label}
+              checked={selectedTypes.has(type)}
+              onToggle={toggleType}
+            />
+          ))}
+        </div>
+      </div>
+
+      <div className="flex flex-wrap items-center justify-end gap-2">
+        {!hideClearReadings ? (
+          <Button
+            type="button"
+            variant="destructive"
+            disabled={clearingReadings}
+            onClick={onClearReadingsClick}
+          >
+            {clearingReadings ? "삭제 중…" : "측정 이력 전체 삭제"}
+          </Button>
+        ) : null}
+        <Button type="button" variant="secondary" onClick={refetchData}>
+          다시 조회
+        </Button>
+      </div>
+      {notice ? (
+        <p
+          className="text-sm text-emerald-700 dark:text-emerald-400"
+          role="status"
+        >
+          {notice}
+        </p>
+      ) : null}
+    </div>
+  );
+});
 
 /** Sensor 영역 — 실시간(최근 1시간)·타입 필터·요약·라인 차트 (기간 지정은 DB 탭) */
 export function SensorDashboard({
@@ -93,14 +213,34 @@ export function SensorDashboard({
   const [notice, setNotice] = useState<string | null>(null);
   const [clearingReadings, setClearingReadings] = useState(false);
 
+  /** 빠른 필터 변경 시 이전 요청 취소·stale 응답 무시 */
+  const fetchSeqRef = useRef(0);
+  const fetchAbortRef = useRef<AbortController | null>(null);
+
+  /** 타입 필터는 ref로 읽어 fetchData 의존성을 고정 — 폴링·MQTT 콜백 재등록·인터벌 리셋 방지 */
+  const selectedTypesRef = useRef(selectedTypes);
+  selectedTypesRef.current = selectedTypes;
+
+  useEffect(() => {
+    return () => {
+      fetchAbortRef.current?.abort();
+    };
+  }, []);
+
   const fetchData = useCallback(async (opts?: { silent?: boolean }) => {
     const silent = opts?.silent === true;
+    const selectedTypes = selectedTypesRef.current;
     if (selectedTypes.size === 0) {
       setError("센서 타입을 한 개 이상 선택해 주세요.");
       setRows([]);
       setLoading(false);
       return;
     }
+    const seq = ++fetchSeqRef.current;
+    fetchAbortRef.current?.abort();
+    const ac = new AbortController();
+    fetchAbortRef.current = ac;
+
     if (!silent) {
       setLoading(true);
     }
@@ -117,13 +257,16 @@ export function SensorDashboard({
       params.set("types", [...selectedTypes].join(","));
     }
     try {
-      const res = await fetch(`/api/sensor-readings?${params.toString()}`, {
-        credentials: "include",
-      });
+      const res = await fetch(
+        `/api/sensor-readings?${params.toString()}`,
+        dashboardFetchInit(ac.signal, { silent }),
+      );
+      if (seq !== fetchSeqRef.current) return;
       const parsed = await parseResponseBodyJson<{
         rows?: SensorReadingRow[];
         error?: string;
       }>(res);
+      if (seq !== fetchSeqRef.current) return;
       if (!parsed.parseOk) {
         if (!silent) {
           setError(parsed.fallbackMessage);
@@ -139,23 +282,39 @@ export function SensorDashboard({
         }
         return;
       }
-      setRows(json.rows ?? []);
-      setError(null);
+      const nextRows = json.rows ?? [];
+      if (silent) {
+        // 폴링·MQTT 백그라운드 갱신은 전환으로 묶어 차트·메인 스레드 반응성 유지
+        startTransition(() => {
+          setRows((prev) =>
+            sameSensorReadingRows(prev, nextRows) ? prev : nextRows,
+          );
+          setError(null);
+        });
+      } else {
+        setRows(nextRows);
+        setError(null);
+      }
     } catch {
+      if (seq !== fetchSeqRef.current) return;
+      if (ac.signal.aborted) return;
       if (!silent) {
         setError("네트워크 오류가 발생했습니다.");
         setRows([]);
       }
     } finally {
-      if (!silent) setLoading(false);
+      if (seq === fetchSeqRef.current && !silent) {
+        setLoading(false);
+      }
     }
-  }, [selectedTypes]);
+  }, []);
 
+  /** 마운트·타입 필터 변경 시에만 전체 조회( fetchData 는 안정 참조) */
   useEffect(() => {
     void fetchData();
-  }, [fetchData]);
+  }, [fetchData, selectedTypes]);
 
-  const { registerCallbacks } = useMqttBrowser();
+  const { registerCallbacks } = useMqttConnectionCore();
 
   /** MQTT 저장 시 차트 갱신 */
   useEffect(() => {
@@ -165,38 +324,64 @@ export function SensorDashboard({
     return () => registerCallbacks({});
   }, [registerCallbacks, fetchData]);
 
-  /** 주기적 재조회 — silent 로 차트 깜박임 방지 */
+  /** 주기적 재조회 — 백그라운드 탭에서는 스킵해 네트워크·CPU 절약, 복귀 시 한 번 갱신 */
   useEffect(() => {
-    const id = window.setInterval(() => {
+    const tick = () => {
+      if (document.visibilityState !== "visible") return;
       void fetchData({ silent: true });
-    }, LIVE_POLL_MS);
-    return () => window.clearInterval(id);
+    };
+    const id = window.setInterval(tick, LIVE_POLL_MS);
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") {
+        void fetchData({ silent: true });
+      }
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      window.clearInterval(id);
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
   }, [fetchData]);
 
-  /** 차트 시리즈 — 선택 타입 중 실제 데이터가 있는 것만 */
-  const typesList = useMemo(() => {
-    const sel = [...selectedTypes];
-    const present = new Set(rows.map((r) => r.sensor_type));
-    return sel.filter((t) => present.has(t));
-  }, [selectedTypes, rows]);
+  /** 요약·단위·typesPresent — rows 단일 순회(latestAndUnitByTypeFromRows) */
+  const { latest, unitByType, typesPresent } = useMemo(
+    () => latestAndUnitByTypeFromRows(rows),
+    [rows],
+  );
+
+  /** 차트 시리즈 — 선택 타입 중 실제 데이터가 있는 것만(typesPresent 재사용으로 rows 재순회 생략) */
+  const typesList = useMemo(
+    () => [...selectedTypes].filter((t) => typesPresent.has(t)),
+    [selectedTypes, typesPresent],
+  );
 
   const chartData = useMemo(
     () => pivotChartRows(rows, typesList),
     [rows, typesList],
   );
-  const latest = useMemo(() => latestByType(rows), [rows]);
+  /** 폴링 등 빠른 연속 갱신 시 차트만 낮은 우선순위로 반영 — 입력·요약은 즉시 */
+  const deferredChartData = useDeferredValue(chartData);
 
-  function toggleType(type: string) {
-    setSelectedTypes((prev) => {
-      const next = new Set(prev);
-      if (next.has(type)) next.delete(type);
-      else next.add(type);
-      return next;
+  /** 타입 체크 핸들러 참조 고정 — 자식·리스트 최적화에 유리 */
+  const toggleType = useCallback((type: string) => {
+    // 차트·피벗 재계산을 전환으로 묶어 체크박스 클릭 반응을 우선 처리
+    startTransition(() => {
+      setSelectedTypes((prev) => {
+        const next = new Set(prev);
+        if (next.has(type)) next.delete(type);
+        else next.add(type);
+        return next;
+      });
     });
-  }
+  }, []);
+
+  /** 다시 조회 버튼 — 참조 고정으로 하위·이벤트 바인딩 비용 완화 */
+  const refetchData = useCallback(() => {
+    void fetchData({ silent: false });
+  }, [fetchData]);
 
   /** 본인 소유 센서의 sensor_readings 전부 삭제 */
-  async function handleClearAllReadings() {
+  const handleClearAllReadings = useCallback(async () => {
     if (
       !window.confirm(
         "본인 계정에 연결된 센서의 측정 이력(sensor_readings)을 모두 삭제합니다. 되돌릴 수 없습니다. 계속할까요?",
@@ -208,33 +393,23 @@ export function SensorDashboard({
     setNotice(null);
     setError(null);
     try {
-      const res = await fetch("/api/sensor-readings/clear", {
-        method: "DELETE",
-        credentials: "include",
-      });
-      const parsed = await parseResponseBodyJson<{
-        ok?: boolean;
-        deleted?: number;
-        error?: string;
-      }>(res);
-      if (!parsed.parseOk) {
-        setError(parsed.fallbackMessage);
+      const result = await requestClearAllSensorReadings();
+      if (!result.ok) {
+        setError(result.errorMessage);
         return;
       }
-      const json = parsed.data;
-      if (!res.ok) {
-        setError(json.error ?? "삭제에 실패했습니다.");
-        return;
-      }
-      const deleted = json.deleted ?? 0;
       await fetchData({ silent: false });
-      setNotice(`측정 이력 ${deleted}건을 삭제했습니다.`);
+      setNotice(`측정 이력 ${result.deleted}건을 삭제했습니다.`);
     } catch {
       setError("네트워크 오류가 발생했습니다.");
     } finally {
       setClearingReadings(false);
     }
-  }
+  }, [fetchData]);
+
+  const onClearReadingsClick = useCallback(() => {
+    void handleClearAllReadings();
+  }, [handleClearAllReadings]);
 
   return (
     <section className="dashboard-panel">
@@ -250,57 +425,15 @@ export function SensorDashboard({
         </div>
       ) : null}
 
-      <div className="mt-4 space-y-4">
-        <p className="text-muted-foreground text-xs leading-relaxed">
-          최근 1시간 구간 · 약 {LIVE_POLL_MS / 1000}초마다 자동 조회 · MQTT로
-          저장되면 즉시 반영
-        </p>
-
-        <div className="space-y-2">
-          <Label>센서 타입</Label>
-          <div className="flex flex-wrap gap-3">
-            {SENSOR_TYPE_FILTERS.map(({ type, label }) => (
-              <label
-                key={type}
-                className="flex cursor-pointer items-center gap-2 text-sm"
-              >
-                <input
-                  type="checkbox"
-                  checked={selectedTypes.has(type)}
-                  onChange={() => toggleType(type)}
-                  className="accent-primary h-4 w-4 rounded border"
-                />
-                {label}
-              </label>
-            ))}
-          </div>
-        </div>
-
-        <div className="flex flex-wrap items-center justify-end gap-2">
-          {!hideClearReadings ? (
-            <Button
-              type="button"
-              variant="destructive"
-              disabled={clearingReadings}
-              onClick={() => void handleClearAllReadings()}
-            >
-              {clearingReadings ? "삭제 중…" : "측정 이력 전체 삭제"}
-            </Button>
-          ) : null}
-          <Button
-            type="button"
-            variant="secondary"
-            onClick={() => void fetchData({ silent: false })}
-          >
-            다시 조회
-          </Button>
-        </div>
-        {notice ? (
-          <p className="text-sm text-emerald-700 dark:text-emerald-400" role="status">
-            {notice}
-          </p>
-        ) : null}
-      </div>
+      <SensorDashboardFilterBlock
+        hideClearReadings={hideClearReadings}
+        clearingReadings={clearingReadings}
+        onClearReadingsClick={onClearReadingsClick}
+        refetchData={refetchData}
+        notice={notice}
+        selectedTypes={selectedTypes}
+        toggleType={toggleType}
+      />
 
       {loading ? (
         <div
@@ -328,92 +461,12 @@ export function SensorDashboard({
       ) : null}
 
       {!loading && !error && rows.length > 0 ? (
-        <>
-          <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-            {SENSOR_TYPE_FILTERS.filter((f) => latest.has(f.type)).map(
-              ({ type, label }) => {
-                const v = latest.get(type);
-                if (!v) return null;
-                return (
-                  <div
-                    key={type}
-                    className="rounded-xl border border-cyan-500/15 bg-muted/25 px-3 py-2 text-sm"
-                  >
-                    <span className="text-muted-foreground">{label}</span>
-                    <div className="font-semibold tabular-nums">
-                      {v.value}
-                      {v.unit ? (
-                        <span className="text-muted-foreground font-normal">
-                          {" "}
-                          {v.unit}
-                        </span>
-                      ) : null}
-                    </div>
-                  </div>
-                );
-              },
-            )}
-          </div>
-
-          {/* 타입마다 별도 라인차트 — Y축·단위 혼합 왜곡 방지 */}
-          <div className="mt-4 flex w-full min-w-0 flex-col gap-6">
-            {typesList.map((ty, i) => {
-              const label =
-                SENSOR_TYPE_FILTERS.find((f) => f.type === ty)?.label ?? ty;
-              const unit = rows.find((r) => r.sensor_type === ty)?.unit;
-              return (
-                <div key={ty} className="min-w-0">
-                  <p className="mb-1 text-sm font-medium text-foreground">
-                    {label}
-                    {unit ? (
-                      <span className="text-muted-foreground font-normal">
-                        {" "}
-                        ({unit})
-                      </span>
-                    ) : null}
-                  </p>
-                  <div className="h-[220px] w-full">
-                    <ResponsiveContainer width="100%" height="100%">
-                      <LineChart
-                        data={chartData}
-                        margin={{ top: 8, right: 8, left: 0, bottom: 0 }}
-                      >
-                        <CartesianGrid
-                          strokeDasharray="3 3"
-                          className="stroke-muted"
-                        />
-                        <XAxis
-                          dataKey="timeLabel"
-                          tick={{ fontSize: 11 }}
-                          interval="preserveStartEnd"
-                        />
-                        <YAxis tick={{ fontSize: 11 }} domain={["auto", "auto"]} />
-                        {/* 실시간 갱신 시 애니메이션 생략 — 렌더·CPU 부담 감소 */}
-                        <Tooltip
-                          contentStyle={{ fontSize: 12 }}
-                          isAnimationActive={false}
-                        />
-                        <Line
-                          type="monotone"
-                          dataKey={ty}
-                          name={label}
-                          stroke={CHART_COLORS[i % CHART_COLORS.length]}
-                          dot={false}
-                          connectNulls
-                          isAnimationActive={false}
-                        />
-                      </LineChart>
-                    </ResponsiveContainer>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-          <p className="text-muted-foreground mt-2 text-xs">
-            센서 타입마다 차트가 분리되어, 각각의 Y축이 해당 측정값 범위에 맞춰
-            표시됩니다.
-          </p>
-        </>
+        <SensorLiveChartsBlock
+          latest={latest}
+          typesList={typesList}
+          chartData={deferredChartData}
+          unitByType={unitByType}
+        />
       ) : null}
     </section>
   );

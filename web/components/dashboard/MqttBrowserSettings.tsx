@@ -3,15 +3,18 @@
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { useMqttBrowser } from "@/components/dashboard/MqttBrowserBridgeContext";
+import {
+  useMqttConnectionCore,
+  useMqttForm,
+} from "@/components/dashboard/MqttBrowserBridgeContext";
 import { ACTUATOR_ROWS } from "@/lib/mqtt/actuatorTopics";
 import { MQTT_TOPICS } from "@/lib/mqtt/allowlist";
 import type { BrowserMqttSettings } from "@/lib/mqtt/browserMqttSettings";
 
 /** 우측 패널·센서 카드 — 브로커 / 센서 토픽 / 액추 토픽을 접었다 펼칠 수 있게 구분 */
 export function MqttBrowserSettings() {
-  const { form, setForm, handleSaveSettings, handleClearSettings } =
-    useMqttBrowser();
+  const { form, setForm } = useMqttForm();
+  const { handleSaveSettings, handleClearSettings } = useMqttConnectionCore();
 
   return (
     <div className="bg-muted/20 space-y-3 rounded-md border border-dashed px-3 py-2 text-sm">

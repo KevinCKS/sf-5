@@ -1,6 +1,12 @@
 "use client";
 
-import { useState, useEffect, type FormEvent } from "react";
+import {
+  useState,
+  useMemo,
+  useCallback,
+  startTransition,
+  type FormEvent,
+} from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
@@ -17,6 +23,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { DASHBOARD_PREFETCH_HREFS } from "@/lib/dashboardPrefetchRoutes";
+import { useIdleStaggeredRouterPrefetch } from "@/lib/navigation/useIdleStaggeredRouterPrefetch";
 
 /** 로그인 폼 — 이메일·비밀번호 */
 export function LoginForm() {
@@ -29,32 +36,39 @@ export function LoginForm() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
-  // 대시보드 전 탭 + next 쿼리 경로 프리패치 — 로그인 직후 탭 전환이 가벼움
-  useEffect(() => {
-    const set = new Set<string>([...DASHBOARD_PREFETCH_HREFS, next]);
-    set.forEach((href) => router.prefetch(href));
-  }, [router, next]);
+  const prefetchHrefs = useMemo(
+    () => [...new Set<string>([...DASHBOARD_PREFETCH_HREFS, next])],
+    [next],
+  );
+  // 대시보드 전 탭 + next — 유휴·스태거 프리패치(이메일 입력 리렌더마다 effect 재실행 방지)
+  useIdleStaggeredRouterPrefetch(router, prefetchHrefs);
 
-  async function onSubmit(e: FormEvent) {
-    e.preventDefault();
-    setError(null);
-    setLoading(true);
-    const supabase = createClient();
-    const { error: signError } = await supabase.auth.signInWithPassword({
-      email,
-      password,
-    });
-    setLoading(false);
-    if (signError) {
-      if (process.env.NODE_ENV === "development") {
-        console.error("[login]", signError.message, signError);
+  const onSubmit = useCallback(
+    async (e: FormEvent) => {
+      e.preventDefault();
+      setError(null);
+      setLoading(true);
+      const supabase = createClient();
+      const { error: signError } = await supabase.auth.signInWithPassword({
+        email,
+        password,
+      });
+      setLoading(false);
+      if (signError) {
+        if (process.env.NODE_ENV === "development") {
+          console.error("[login]", signError.message, signError);
+        }
+        setError(toKoreanAuthMessage(signError));
+        return;
       }
-      setError(toKoreanAuthMessage(signError));
-      return;
-    }
-    router.push(next);
-    router.refresh();
-  }
+      // 라우트 전환을 전환으로 묶어 로그인 폼 언마운트 직후 메인 스레드 반응성 완화
+      startTransition(() => {
+        router.push(next);
+        router.refresh();
+      });
+    },
+    [email, password, next, router],
+  );
 
   return (
     <Card className="w-full max-w-md border-cyan-400/25 shadow-[0_12px_48px_-16px_rgba(34,211,238,0.2)] ring-cyan-400/20">
@@ -100,7 +114,12 @@ export function LoginForm() {
           </Button>
           <p className="text-center text-sm text-muted-foreground">
             계정이 없으신가요?{" "}
-            <Link href="/signup" className="underline underline-offset-4">
+            <Link
+              href="/signup"
+              prefetch
+              scroll={false}
+              className="underline underline-offset-4"
+            >
               회원가입
             </Link>
           </p>

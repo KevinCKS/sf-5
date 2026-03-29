@@ -14,15 +14,19 @@ const nextConfig: NextConfig = {
       "lucide-react",
       "recharts",
       "@base-ui/react",
+      "@supabase/supabase-js",
+      "@supabase/ssr",
       "clsx",
       "tailwind-merge",
       "class-variance-authority",
     ],
+    // 초기 HTML에 CSS 인라인 — 첫 페인트까지 링크 요청 감소(실험)
+    inlineCss: true,
     // 클라이언트 라우터 스크롤 복원 경로 최적화
     optimizeRouterScrolling: true,
-    // 동적 라우트 클라이언트 캐시(기본 dynamic=0) — 탭 왕복 시 RSC 재요청 완화
+    // 동적 라우트 클라이언트 캐시 — 탭 왕복 시 RSC 재요청·전환 지연 완화(최대 60초까지 스냅샷 재사용)
     staleTimes: {
-      dynamic: 30,
+      dynamic: 60,
       static: 300,
     },
   },

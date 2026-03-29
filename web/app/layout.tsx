@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 
@@ -29,6 +29,12 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "Smartfarm",
   description: "스마트팜 모니터링·제어",
+};
+
+/** 모바일·태블릿에서 초기 레이아웃 계산을 안정화 */
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
 };
 
 export default function RootLayout({

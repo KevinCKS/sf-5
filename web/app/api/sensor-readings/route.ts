@@ -25,6 +25,8 @@ export async function GET(request: Request) {
   const fromParam = searchParams.get("from");
   const toParam = searchParams.get("to");
   const typesParam = searchParams.get("types");
+  /** 비어 있으면 본인 소유 전체 타입 — 있으면 해당 sensor_type 센서만 조회해 행·JSON 부담 감소 */
+  const typesFilter = typesParam?.split(",").filter(Boolean) ?? [];
   // sort 생략 시 최신순 — 대시보드 차트용. DB 테이블 탭에서는 `sort` 쿼리로 전달 예정
   const sortRaw = searchParams.get("sort") ?? "recorded_at_desc";
 
@@ -44,10 +46,14 @@ export async function GET(request: Request) {
     : defaultFrom.toISOString();
   const toIso = toParam ? new Date(toParam).toISOString() : defaultTo.toISOString();
 
-  const { data: sensorRows, error: errSensors } = await supabase
+  let sensorsQuery = supabase
     .from("sensors")
     .select("id")
     .eq("owner_id", user.id);
+  if (typesFilter.length > 0) {
+    sensorsQuery = sensorsQuery.in("sensor_type", typesFilter);
+  }
+  const { data: sensorRows, error: errSensors } = await sensorsQuery;
 
   if (errSensors) {
     return NextResponse.json({ error: errSensors.message }, { status: 500 });
@@ -58,7 +64,8 @@ export async function GET(request: Request) {
     return NextResponse.json({ rows: [] as SensorReadingRow[] });
   }
 
-  const { data: readings, error: errRead } = await supabase
+  // 시간 정렬은 DB에서 처리 — 메모리에서 O(n log n) 재정렬 생략(타입 필터는 순서 유지)
+  let readingsQuery = supabase
     .from("sensor_readings")
     .select(
       `
@@ -69,8 +76,7 @@ export async function GET(request: Request) {
         id,
         name,
         sensor_type,
-        unit,
-        owner_id
+        unit
       )
     `,
     )
@@ -78,38 +84,43 @@ export async function GET(request: Request) {
     .gte("recorded_at", fromIso)
     .lte("recorded_at", toIso);
 
+  if (sort === "recorded_at_desc") {
+    readingsQuery = readingsQuery.order("recorded_at", { ascending: false });
+  } else if (sort === "recorded_at_asc") {
+    readingsQuery = readingsQuery.order("recorded_at", { ascending: true });
+  }
+
+  const { data: readings, error: errRead } = await readingsQuery;
+
   if (errRead) {
     return NextResponse.json({ error: errRead.message }, { status: 500 });
   }
 
-  const rows: SensorReadingRow[] = (readings ?? [])
-    .map((r) => {
-      const raw = r.sensors as unknown;
-      const s = Array.isArray(raw) ? raw[0] : raw;
-      if (!s || typeof s !== "object") return null;
-      const sn = s as {
-        name: string;
-        sensor_type: string;
-        unit: string | null;
-      };
-      return {
-        id: r.id as string,
-        value: Number(r.value),
-        recorded_at: r.recorded_at as string,
-        sensor_type: sn.sensor_type,
-        unit: sn.unit,
-        sensor_name: sn.name,
-      };
-    })
-    .filter((x): x is SensorReadingRow => x !== null);
+  // map+filter 대신 한 번 순회 — null 중간 배열·재스캔 생략
+  const rows: SensorReadingRow[] = [];
+  for (const r of readings ?? []) {
+    const raw = r.sensors as unknown;
+    const s = Array.isArray(raw) ? raw[0] : raw;
+    if (!s || typeof s !== "object") continue;
+    const sn = s as {
+      name: string;
+      sensor_type: string;
+      unit: string | null;
+    };
+    rows.push({
+      id: r.id as string,
+      value: Number(r.value),
+      recorded_at: r.recorded_at as string,
+      sensor_type: sn.sensor_type,
+      unit: sn.unit,
+      sensor_name: sn.name,
+    });
+  }
 
-  const typesFilter = typesParam?.split(",").filter(Boolean) ?? [];
-  let filtered =
-    typesFilter.length > 0
-      ? rows.filter((row) => typesFilter.includes(row.sensor_type))
-      : rows;
-
-  filtered = sortReadingRows(filtered, sort);
+  let filtered = rows;
+  if (sort !== "recorded_at_desc" && sort !== "recorded_at_asc") {
+    filtered = sortReadingRows(filtered, sort);
+  }
 
   return NextResponse.json({ rows: filtered });
   } catch (e) {

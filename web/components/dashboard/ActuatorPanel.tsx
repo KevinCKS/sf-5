@@ -1,12 +1,20 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  startTransition,
+  memo,
+} from "react";
 import { Gauge, Loader2, RefreshCw, Send, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ACTUATOR_ROWS } from "@/lib/mqtt/actuatorTopics";
-import { useMqttBrowser } from "@/components/dashboard/MqttBrowserBridge";
+import { useMqttForm } from "@/components/dashboard/MqttBrowserBridge";
 import {
   clearBrowserMqttSettings,
   getEnvDefaultMqttForm,
@@ -14,6 +22,11 @@ import {
   saveBrowserMqttSettings,
   type BrowserMqttSettings,
 } from "@/lib/mqtt/browserMqttSettings";
+import { KO_SHORT_DATETIME } from "@/lib/datetime/koShortDateTime";
+import {
+  dashboardFetchInit,
+  dashboardJsonFetchInit,
+} from "@/lib/http/dashboardFetchInit";
 import { parseResponseBodyJson } from "@/lib/http/parseResponseBodyJson";
 
 type ActuatorControlRow = {
@@ -33,6 +46,233 @@ type ActuatorPanelProps = {
   /** false: DB 탭에서 제어·이력만 분리할 때 */
   showHistory?: boolean;
 };
+
+/** 이력 한 줄 — actionError·로딩만 바뀔 때 동일 행 재렌더 생략 */
+const ActuatorHistoryListItem = memo(function ActuatorHistoryListItem({
+  rowLabel,
+  state,
+  timeLabel,
+}: {
+  rowLabel: string;
+  state: string;
+  timeLabel: string;
+}) {
+  return (
+    <li className="[contain-intrinsic-size:auto_2.25rem] [content-visibility:auto] text-muted-foreground grid grid-cols-[minmax(0,1fr)_2.75rem_8.5rem] items-center gap-x-2 border-b border-dashed py-1.5 last:border-0">
+      <span className="min-w-0 truncate font-sans">{rowLabel}</span>
+      <span className="text-foreground w-full text-center font-mono tabular-nums">
+        {state}
+      </span>
+      <span className="shrink-0 text-right font-mono text-[11px] tabular-nums">
+        {timeLabel}
+      </span>
+    </li>
+  );
+});
+
+type ActuatorDisplayResolved = {
+  state: string | undefined;
+  variant: "board" | "command";
+  subLabel: string;
+};
+
+/** 최근 이력 시각 — 표 행용(컴포넌트 밖 순수 함수) */
+function formatHistoryTime(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "—";
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  const hh = String(d.getHours()).padStart(2, "0");
+  const mm = String(d.getMinutes()).padStart(2, "0");
+  return `${y}-${m}-${day} ${hh}:${mm}`;
+}
+
+function labelForActuatorKey(key: string) {
+  return ACTUATOR_ROWS.find((r) => r.key === key)?.label ?? key;
+}
+
+/** actuator_controls 이력 행이 동일하면 참조 유지 */
+function sameActuatorControlRows(
+  a: ActuatorControlRow[],
+  b: ActuatorControlRow[],
+): boolean {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    const x = a[i]!;
+    const y = b[i]!;
+    if (
+      x.id !== y.id ||
+      x.actuator_key !== y.actuator_key ||
+      x.state !== y.state ||
+      x.recorded_at !== y.recorded_at
+    ) {
+      return false;
+    }
+  }
+  return true;
+}
+
+/** actuator_status 맵이 키·값 동일하면 참조 유지 */
+function sameHwByKeyRecord(
+  a: Record<string, HwRow>,
+  b: Record<string, HwRow>,
+): boolean {
+  const keysA = Object.keys(a);
+  const keysB = Object.keys(b);
+  if (keysA.length !== keysB.length) return false;
+  for (const k of keysB) {
+    const ra = a[k];
+    const rb = b[k];
+    if (
+      !ra ||
+      !rb ||
+      ra.state !== rb.state ||
+      ra.updated_at !== rb.updated_at
+    ) {
+      return false;
+    }
+  }
+  return true;
+}
+
+/** 보드 DB vs 명령 에코 표시 — useMemo 에서 재계산 범위 한정 */
+function computeActuatorDisplay(
+  rowKey: string,
+  hwByKey: Record<string, HwRow>,
+  commandEchoByKey: Record<string, { state: "ON" | "OFF"; atMs: number }>,
+): ActuatorDisplayResolved {
+  const hw = hwByKey[rowKey];
+  const echo = commandEchoByKey[rowKey];
+  const hwTime = hw?.updated_at ? new Date(hw.updated_at).getTime() : 0;
+  if (echo && (!hw?.updated_at || hwTime < echo.atMs)) {
+    return {
+      state: echo.state,
+      variant: "command",
+      subLabel: `${KO_SHORT_DATETIME.format(new Date(echo.atMs))} · 보드 보고 대기`,
+    };
+  }
+  return {
+    state: hw?.state,
+    variant: "board",
+    subLabel: hw?.updated_at
+      ? KO_SHORT_DATETIME.format(new Date(hw.updated_at))
+      : "갱신 시각 —",
+  };
+}
+
+/** ON/OFF 배지 — 제어 카드 memo 와 공유 */
+function actuatorStateBadge(
+  state: string | undefined,
+  variant: "board" | "command" = "board",
+) {
+  if (!state) {
+    return (
+      <span className="text-muted-foreground font-mono text-xs tabular-nums">—</span>
+    );
+  }
+  const on = state === "ON";
+  if (variant === "command") {
+    return (
+      <span
+        className={
+          on
+            ? "inline-flex rounded-md border border-sky-500/50 bg-sky-500/15 px-2 py-0.5 font-mono text-xs font-semibold text-sky-900 dark:text-sky-100"
+            : "inline-flex rounded-md border border-amber-500/40 bg-amber-500/10 px-2 py-0.5 font-mono text-xs font-medium text-amber-900 dark:text-amber-100"
+        }
+      >
+        {state}
+      </span>
+    );
+  }
+  return (
+    <span
+      className={
+        on
+          ? "inline-flex rounded-md border border-emerald-500/40 bg-emerald-500/15 px-2 py-0.5 font-mono text-xs font-semibold text-emerald-800 dark:text-emerald-200"
+          : "inline-flex rounded-md border border-muted-foreground/30 bg-muted/50 px-2 py-0.5 font-mono text-xs font-medium text-muted-foreground"
+      }
+    >
+      {state}
+    </span>
+  );
+}
+
+type ActuatorRowDef = (typeof ACTUATOR_ROWS)[number];
+
+type ActuatorControlCardProps = {
+  row: ActuatorRowDef;
+  disp: ActuatorDisplayResolved;
+  showHwSpinner: boolean;
+  commandTopic: string;
+  publishState: (
+    topic: string,
+    state: "ON" | "OFF",
+    rowKey: string,
+  ) => Promise<void>;
+};
+
+/** 원격 제어 카드 한 장 — 다른 액추의 hw·disp 만 바뀔 때 나머지 카드 리렌더 생략 */
+const ActuatorControlCard = memo(function ActuatorControlCard({
+  row,
+  disp,
+  showHwSpinner,
+  commandTopic,
+  publishState,
+}: ActuatorControlCardProps) {
+  return (
+    <div className="flex flex-wrap items-stretch justify-between gap-3 rounded-md border bg-muted/20 px-3 py-3">
+      <div className="min-w-0 flex-1 space-y-2">
+        <div className="text-sm font-medium leading-none">{row.label}</div>
+        <div className="text-muted-foreground flex flex-wrap items-center gap-2 text-xs">
+          <span
+            className="inline-flex items-center gap-1"
+            title={
+              disp.variant === "command"
+                ? "서버가 MQTT 발행까지 완료(보드 §6.3 보고 전)"
+                : "actuator_status (§6.3)"
+            }
+          >
+            {disp.variant === "command" ? (
+              <Send className="text-sky-600/90 dark:text-sky-400 h-3.5 w-3.5 shrink-0" aria-hidden />
+            ) : (
+              <Gauge className="text-muted-foreground/80 h-3.5 w-3.5 shrink-0" aria-hidden />
+            )}
+            <span>{disp.variant === "command" ? "명령" : "보드"}</span>
+          </span>
+          {showHwSpinner ? (
+            <Loader2 className="h-3.5 w-3.5 animate-spin opacity-70" aria-hidden />
+          ) : (
+            actuatorStateBadge(disp.state, disp.variant)
+          )}
+          <span className="text-muted-foreground max-w-[min(100%,14rem)] font-mono text-[11px] leading-snug tabular-nums sm:max-w-none">
+            {disp.subLabel}
+          </span>
+        </div>
+      </div>
+      <div className="flex shrink-0 items-center gap-2 self-center">
+        <Button
+          type="button"
+          size="sm"
+          variant="secondary"
+          className="min-w-[4.25rem]"
+          onClick={() => void publishState(commandTopic, "ON", row.key)}
+        >
+          ON
+        </Button>
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          className="min-w-[4.25rem]"
+          onClick={() => void publishState(commandTopic, "OFF", row.key)}
+        >
+          OFF
+        </Button>
+      </div>
+    </div>
+  );
+});
 
 /** 액츄에이터 ON/OFF — POST /api/mqtt/publish + 이력 + §6.3 보드 상태 */
 export function ActuatorPanel({
@@ -55,17 +295,72 @@ export function ActuatorPanel({
   const [clearing, setClearing] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const [mqttSettingsHint, setMqttSettingsHint] = useState<string | null>(null);
-  const { form: mqttForm, setForm: setMqttForm } = useMqttBrowser();
+  const { form: mqttForm, setForm: setMqttForm } = useMqttForm();
+
+  /** 제어 카드 — mqttForm·기타 입력만 바뀔 때 보드 표시 로직 재실행 방지 */
+  const actuatorCardDisplays = useMemo(
+    () =>
+      ACTUATOR_ROWS.map((row) => ({
+        row,
+        disp: computeActuatorDisplay(row.key, hwByKey, commandEchoByKey),
+      })),
+    [hwByKey, commandEchoByKey],
+  );
+
+  /** 이력 목록 — 동일 recorded_at·actuator_key 는 포맷/라벨 1회만 */
+  const historyRowsPrepared = useMemo(() => {
+    const timeLabelByRecorded = new Map<string, string>();
+    const rowLabelByKey = new Map<string, string>();
+    return history.map((h) => {
+      let timeLabel = timeLabelByRecorded.get(h.recorded_at);
+      if (timeLabel === undefined) {
+        timeLabel = formatHistoryTime(h.recorded_at);
+        timeLabelByRecorded.set(h.recorded_at, timeLabel);
+      }
+      let rowLabel = rowLabelByKey.get(h.actuator_key);
+      if (rowLabel === undefined) {
+        rowLabel = labelForActuatorKey(h.actuator_key);
+        rowLabelByKey.set(h.actuator_key, rowLabel);
+      }
+      return {
+        id: h.id,
+        state: h.state,
+        timeLabel,
+        rowLabel,
+      };
+    });
+  }, [history]);
+
+  /** 이력·보드 상태 요청 경쟁 시 취소·stale 무시 */
+  const historySeqRef = useRef(0);
+  const historyAbortRef = useRef<AbortController | null>(null);
+  const hwSeqRef = useRef(0);
+  const hwAbortRef = useRef<AbortController | null>(null);
+
+  useEffect(() => {
+    return () => {
+      historyAbortRef.current?.abort();
+      hwAbortRef.current?.abort();
+    };
+  }, []);
 
   const loadHistory = useCallback(async () => {
+    const seq = ++historySeqRef.current;
+    historyAbortRef.current?.abort();
+    const ac = new AbortController();
+    historyAbortRef.current = ac;
+
     setListError(null);
     try {
-      const res = await fetch("/api/actuator-controls?limit=25", {
-        credentials: "include",
-      });
+      const res = await fetch(
+        "/api/actuator-controls?limit=25",
+        dashboardFetchInit(ac.signal),
+      );
+      if (seq !== historySeqRef.current) return;
       const parsed = await parseResponseBodyJson<{ rows?: ActuatorControlRow[]; error?: string }>(
         res,
       );
+      if (seq !== historySeqRef.current) return;
       if (!parsed.parseOk) {
         setListError(parsed.fallbackMessage);
         setHistory([]);
@@ -76,30 +371,45 @@ export function ActuatorPanel({
         setHistory([]);
         return;
       }
-      setHistory(parsed.data.rows ?? []);
+      const nextHistory = parsed.data.rows ?? [];
+      setHistory((prev) =>
+        sameActuatorControlRows(prev, nextHistory) ? prev : nextHistory,
+      );
     } catch {
+      if (seq !== historySeqRef.current) return;
+      if (ac.signal.aborted) return;
       setListError("네트워크 오류가 발생했습니다.");
       setHistory([]);
     } finally {
-      setLoadingList(false);
+      if (seq === historySeqRef.current) {
+        setLoadingList(false);
+      }
     }
   }, []);
 
   /** PRD §6.3 — actuator_status(보드가 MQTT로 보고한 최신 상태) */
   const loadHardware = useCallback(async (opts?: { silent?: boolean }) => {
     const silent = opts?.silent === true;
+    const seq = ++hwSeqRef.current;
+    hwAbortRef.current?.abort();
+    const ac = new AbortController();
+    hwAbortRef.current = ac;
+
     if (!silent) {
       setHwError(null);
       setLoadingHw(true);
     }
     try {
-      const res = await fetch("/api/actuators/status", {
-        credentials: "include",
-      });
+      const res = await fetch(
+        "/api/actuators/status",
+        dashboardFetchInit(ac.signal, { silent }),
+      );
+      if (seq !== hwSeqRef.current) return;
       const parsed = await parseResponseBodyJson<{
         rows?: { actuator_key: string; state: string; updated_at: string }[];
         error?: string;
       }>(res);
+      if (seq !== hwSeqRef.current) return;
       if (!parsed.parseOk) {
         setHwError(parsed.fallbackMessage);
         setHwByKey({});
@@ -114,24 +424,33 @@ export function ActuatorPanel({
       for (const r of parsed.data.rows ?? []) {
         next[r.actuator_key] = { state: r.state, updated_at: r.updated_at };
       }
-      setHwByKey(next);
+      const applyHw = () => {
+        setHwByKey((prev) =>
+          sameHwByKeyRecord(prev, next) ? prev : next,
+        );
+      };
+      if (silent) startTransition(applyHw);
+      else applyHw();
     } catch {
+      if (seq !== hwSeqRef.current) return;
+      if (ac.signal.aborted) return;
       setHwError("네트워크 오류가 발생했습니다.");
       setHwByKey({});
     } finally {
-      if (!silent) setLoadingHw(false);
+      if (seq === hwSeqRef.current && !silent) {
+        setLoadingHw(false);
+      }
     }
   }, []);
 
+  /** 이력·보드 상태를 동시에 요청해 초기 로드 대기 시간 단축 */
   useEffect(() => {
-    if (!showHistory) return;
-    void loadHistory();
-  }, [loadHistory, showHistory]);
-
-  useEffect(() => {
-    if (!showControls) return;
-    void loadHardware();
-  }, [loadHardware, showControls]);
+    const tasks: Promise<void>[] = [];
+    if (showHistory) tasks.push(loadHistory());
+    if (showControls) tasks.push(loadHardware());
+    if (tasks.length === 0) return;
+    void Promise.all(tasks);
+  }, [loadHistory, loadHardware, showHistory, showControls]);
 
   useEffect(() => {
     if (!showControls) return;
@@ -140,46 +459,54 @@ export function ActuatorPanel({
     return () => window.removeEventListener("smartfarm-actuator-status-stored", h);
   }, [loadHardware, showControls]);
 
-  async function publishState(topic: string, state: "ON" | "OFF", rowKey: string) {
-    if (publishInFlightRef.current.has(rowKey)) return;
-    publishInFlightRef.current.add(rowKey);
-    setActionError(null);
-    try {
-      const res = await fetch("/api/mqtt/publish", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({ topic, payload: { state } }),
-      });
-      const parsed = await parseResponseBodyJson<{
-        ok?: boolean;
-        error?: string;
-        topic?: string;
-        mqttOk?: boolean;
-      }>(res);
-      if (!parsed.parseOk) {
-        setActionError(parsed.fallbackMessage);
-        return;
+  const publishState = useCallback(
+    async (topic: string, state: "ON" | "OFF", rowKey: string) => {
+      if (publishInFlightRef.current.has(rowKey)) return;
+      publishInFlightRef.current.add(rowKey);
+      setActionError(null);
+      try {
+        const res = await fetch("/api/mqtt/publish", {
+          method: "POST",
+          ...dashboardJsonFetchInit({
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ topic, payload: { state } }),
+          }),
+        });
+        const parsed = await parseResponseBodyJson<{
+          ok?: boolean;
+          error?: string;
+          topic?: string;
+          mqttOk?: boolean;
+        }>(res);
+        if (!parsed.parseOk) {
+          setActionError(parsed.fallbackMessage);
+          return;
+        }
+        const json = parsed.data;
+        if (!res.ok) {
+          setActionError(json.error ?? `HTTP ${res.status}`);
+          return;
+        }
+        setCommandEchoByKey((prev) => ({
+          ...prev,
+          [rowKey]: { state, atMs: Date.now() },
+        }));
+        // 이력·§6.3 보드 상태를 동시에 갱신해 ON/OFF 직후 표시 지연 단축
+        void Promise.all([
+          loadHistory(),
+          loadHardware({ silent: true }),
+        ]);
+      } catch {
+        setActionError("네트워크 오류가 발생했습니다.");
+      } finally {
+        publishInFlightRef.current.delete(rowKey);
       }
-      const json = parsed.data;
-      if (!res.ok) {
-        setActionError(json.error ?? `HTTP ${res.status}`);
-        return;
-      }
-      setCommandEchoByKey((prev) => ({
-        ...prev,
-        [rowKey]: { state, atMs: Date.now() },
-      }));
-      void loadHistory();
-    } catch {
-      setActionError("네트워크 오류가 발생했습니다.");
-    } finally {
-      publishInFlightRef.current.delete(rowKey);
-    }
-  }
+    },
+    [loadHistory, loadHardware],
+  );
 
   /** 본인 actuator_controls 이력 전체 삭제 */
-  async function clearHistory() {
+  const clearHistory = useCallback(async () => {
     if (
       !window.confirm(
         "actuator_controls 테이블에서 본인 이력을 모두 삭제할까요? 이 작업은 되돌릴 수 없습니다.",
@@ -192,7 +519,7 @@ export function ActuatorPanel({
     try {
       const res = await fetch("/api/actuator-controls", {
         method: "DELETE",
-        credentials: "include",
+        ...dashboardJsonFetchInit(),
       });
       const parsed = await parseResponseBodyJson<{ ok?: boolean; error?: string }>(res);
       if (!parsed.parseOk) {
@@ -209,102 +536,32 @@ export function ActuatorPanel({
     } finally {
       setClearing(false);
     }
-  }
-
-  function labelForKey(key: string) {
-    return ACTUATOR_ROWS.find((r) => r.key === key)?.label ?? key;
-  }
+  }, [loadHistory]);
 
   /** 브라우저 MQTT 설정 저장(Sensor 카드와 같은 키) */
-  function handleSaveMqttSettings() {
+  const handleSaveMqttSettings = useCallback(() => {
     saveBrowserMqttSettings(mqttForm);
     setMqttSettingsHint(
       "이 브라우저에 저장했습니다. MQTT 연결을 끊었다가 다시 연결하면 §6.3 토픽이 적용됩니다.",
     );
     setActionError(null);
-  }
+  }, [mqttForm]);
 
-  function handleClearMqttSettings() {
+  const handleClearMqttSettings = useCallback(() => {
     clearBrowserMqttSettings();
     setMqttForm(getEnvDefaultMqttForm());
     setMqttSettingsHint(
       "저장값을 지웠습니다. env 기본값을 쓰려면 MQTT 연결을 다시 시도하세요.",
     );
-  }
+  }, [setMqttForm]);
 
-  /** 최근 이력 시각 — 24시간제 `YYYY-MM-DD HH:mm` (로컬) */
-  function formatHistoryTime(iso: string): string {
-    const d = new Date(iso);
-    if (Number.isNaN(d.getTime())) return "—";
-    const y = d.getFullYear();
-    const m = String(d.getMonth() + 1).padStart(2, "0");
-    const day = String(d.getDate()).padStart(2, "0");
-    const hh = String(d.getHours()).padStart(2, "0");
-    const mm = String(d.getMinutes()).padStart(2, "0");
-    return `${y}-${m}-${day} ${hh}:${mm}`;
-  }
+  const onRefreshHardware = useCallback(() => {
+    void loadHardware();
+  }, [loadHardware]);
 
-  /** 보드 DB 값 vs 방금 보낸 명령(서버 발행 성공) 중 화면에 보여줄 값 */
-  function resolveActuatorDisplay(rowKey: string): {
-    state: string | undefined;
-    variant: "board" | "command";
-    subLabel: string;
-  } {
-    const hw = hwByKey[rowKey];
-    const echo = commandEchoByKey[rowKey];
-    const hwTime = hw?.updated_at ? new Date(hw.updated_at).getTime() : 0;
-    if (echo && (!hw?.updated_at || hwTime < echo.atMs)) {
-      return {
-        state: echo.state,
-        variant: "command",
-        subLabel: `${new Date(echo.atMs).toLocaleString("ko-KR")} · 보드 보고 대기`,
-      };
-    }
-    return {
-      state: hw?.state,
-      variant: "board",
-      subLabel: hw?.updated_at
-        ? new Date(hw.updated_at).toLocaleString("ko-KR")
-        : "갱신 시각 —",
-    };
-  }
-
-  /** ON/OFF 배지 — board: §6.3 DB, command: 서버 발행 직후(보드 미반영) */
-  function stateBadge(
-    state: string | undefined,
-    variant: "board" | "command" = "board",
-  ) {
-    if (!state) {
-      return (
-        <span className="text-muted-foreground font-mono text-xs tabular-nums">—</span>
-      );
-    }
-    const on = state === "ON";
-    if (variant === "command") {
-      return (
-        <span
-          className={
-            on
-              ? "inline-flex rounded-md border border-sky-500/50 bg-sky-500/15 px-2 py-0.5 font-mono text-xs font-semibold text-sky-900 dark:text-sky-100"
-              : "inline-flex rounded-md border border-amber-500/40 bg-amber-500/10 px-2 py-0.5 font-mono text-xs font-medium text-amber-900 dark:text-amber-100"
-          }
-        >
-          {state}
-        </span>
-      );
-    }
-    return (
-      <span
-        className={
-          on
-            ? "inline-flex rounded-md border border-emerald-500/40 bg-emerald-500/15 px-2 py-0.5 font-mono text-xs font-semibold text-emerald-800 dark:text-emerald-200"
-            : "inline-flex rounded-md border border-muted-foreground/30 bg-muted/50 px-2 py-0.5 font-mono text-xs font-medium text-muted-foreground"
-        }
-      >
-        {state}
-      </span>
-    );
-  }
+  const onClearHistoryClick = useCallback(() => {
+    void clearHistory();
+  }, [clearHistory]);
 
   return (
     <section className="dashboard-panel">
@@ -474,7 +731,7 @@ export function ActuatorPanel({
           size="sm"
           variant="outline"
           disabled={loadingHw}
-          onClick={() => void loadHardware()}
+          onClick={onRefreshHardware}
           className="shrink-0"
         >
           {loadingHw ? (
@@ -487,85 +744,25 @@ export function ActuatorPanel({
       </div>
 
       <div className="mt-3 space-y-3">
-        {ACTUATOR_ROWS.map((row) => {
-          const disp = resolveActuatorDisplay(row.key);
+        {actuatorCardDisplays.map(({ row, disp }) => {
           const showHwSpinner =
             loadingHw &&
             !hwByKey[row.key] &&
             !commandEchoByKey[row.key] &&
             !disp.state;
+          const commandTopic = normalizeActuatorCommandTopic(
+            row.key,
+            mqttForm.actuatorCommandTopics[row.key],
+          );
           return (
-            <div
+            <ActuatorControlCard
               key={row.key}
-              className="flex flex-wrap items-stretch justify-between gap-3 rounded-md border bg-muted/20 px-3 py-3"
-            >
-              <div className="min-w-0 flex-1 space-y-2">
-                <div className="text-sm font-medium leading-none">{row.label}</div>
-                <div className="text-muted-foreground flex flex-wrap items-center gap-2 text-xs">
-                  <span
-                    className="inline-flex items-center gap-1"
-                    title={
-                      disp.variant === "command"
-                        ? "서버가 MQTT 발행까지 완료(보드 §6.3 보고 전)"
-                        : "actuator_status (§6.3)"
-                    }
-                  >
-                    {disp.variant === "command" ? (
-                      <Send className="text-sky-600/90 dark:text-sky-400 h-3.5 w-3.5 shrink-0" aria-hidden />
-                    ) : (
-                      <Gauge className="text-muted-foreground/80 h-3.5 w-3.5 shrink-0" aria-hidden />
-                    )}
-                    <span>{disp.variant === "command" ? "명령" : "보드"}</span>
-                  </span>
-                  {showHwSpinner ? (
-                    <Loader2 className="h-3.5 w-3.5 animate-spin opacity-70" aria-hidden />
-                  ) : (
-                    stateBadge(disp.state, disp.variant)
-                  )}
-                  <span className="text-muted-foreground max-w-[min(100%,14rem)] font-mono text-[11px] leading-snug tabular-nums sm:max-w-none">
-                    {disp.subLabel}
-                  </span>
-                </div>
-              </div>
-              <div className="flex shrink-0 items-center gap-2 self-center">
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="secondary"
-                  className="min-w-[4.25rem]"
-                  onClick={() =>
-                    void publishState(
-                      normalizeActuatorCommandTopic(
-                        row.key,
-                        mqttForm.actuatorCommandTopics[row.key],
-                      ),
-                      "ON",
-                      row.key,
-                    )
-                  }
-                >
-                  ON
-                </Button>
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="outline"
-                  className="min-w-[4.25rem]"
-                  onClick={() =>
-                    void publishState(
-                      normalizeActuatorCommandTopic(
-                        row.key,
-                        mqttForm.actuatorCommandTopics[row.key],
-                      ),
-                      "OFF",
-                      row.key,
-                    )
-                  }
-                >
-                  OFF
-                </Button>
-              </div>
-            </div>
+              row={row}
+              disp={disp}
+              showHwSpinner={showHwSpinner}
+              commandTopic={commandTopic}
+              publishState={publishState}
+            />
           );
         })}
       </div>
@@ -590,7 +787,7 @@ export function ActuatorPanel({
             variant="outline"
             className="text-destructive border-destructive/40 hover:bg-destructive/10"
             disabled={clearing || loadingList || history.length === 0}
-            onClick={() => void clearHistory()}
+            onClick={onClearHistoryClick}
           >
             {clearing ? (
               <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
@@ -611,19 +808,13 @@ export function ActuatorPanel({
           <p className="text-muted-foreground text-sm">이력이 없습니다.</p>
         ) : (
           <ul className="max-h-[200px] space-y-0 overflow-y-auto text-xs">
-            {history.map((h) => (
-              <li
+            {historyRowsPrepared.map((h) => (
+              <ActuatorHistoryListItem
                 key={h.id}
-                className="text-muted-foreground grid grid-cols-[minmax(0,1fr)_2.75rem_8.5rem] items-center gap-x-2 border-b border-dashed py-1.5 last:border-0"
-              >
-                <span className="min-w-0 truncate font-sans">{labelForKey(h.actuator_key)}</span>
-                <span className="text-foreground w-full text-center font-mono tabular-nums">
-                  {h.state}
-                </span>
-                <span className="shrink-0 text-right font-mono text-[11px] tabular-nums">
-                  {formatHistoryTime(h.recorded_at)}
-                </span>
-              </li>
+                rowLabel={h.rowLabel}
+                state={h.state}
+                timeLabel={h.timeLabel}
+              />
             ))}
           </ul>
         )}

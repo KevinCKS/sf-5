@@ -1,5 +1,6 @@
 "use client";
 
+import { memo } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
@@ -11,7 +12,7 @@ const ITEMS = [
 ] as const;
 
 /** 왼쪽 사이드 — 대시보드 / DB / Alert 이동 */
-export function DashboardNav() {
+function DashboardNavInner() {
   const pathname = usePathname();
 
   return (
@@ -42,3 +43,6 @@ export function DashboardNav() {
     </nav>
   );
 }
+
+/** 메인 콘텐츠만 바뀔 때 pathname 불일 시 사이드 내비 리렌더 생략 */
+export const DashboardNav = memo(DashboardNavInner);

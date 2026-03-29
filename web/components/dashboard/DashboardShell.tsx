@@ -1,6 +1,6 @@
 "use client";
 
-import type { ReactNode } from "react";
+import { memo, type ReactNode } from "react";
 import { DashboardNav } from "@/components/dashboard/DashboardNav";
 import { DashboardRoutePrefetch } from "@/components/dashboard/DashboardRoutePrefetch";
 
@@ -9,8 +9,11 @@ type DashboardShellProps = {
   userEmail: string | null;
 };
 
-/** 좌측 내비 + 가운데 메인 영역 */
-export function DashboardShell({ children, userEmail }: DashboardShellProps) {
+/** 좌측 내비 + 가운데 메인 영역 — MQTT 힌트 등으로 Provider만 갱신될 때 children 참조 동일하면 스킵 */
+export const DashboardShell = memo(function DashboardShell({
+  children,
+  userEmail,
+}: DashboardShellProps) {
   return (
     <div className="flex min-h-[calc(100vh-3.5rem)] flex-col md:flex-row">
       <DashboardRoutePrefetch />
@@ -26,4 +29,4 @@ export function DashboardShell({ children, userEmail }: DashboardShellProps) {
       </main>
     </div>
   );
-}
+});

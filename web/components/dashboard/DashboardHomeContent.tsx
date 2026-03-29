@@ -22,18 +22,19 @@ function ActuatorBlockSkeleton() {
   );
 }
 
+// ssr: false — 클라이언트 전용 패널은 서버 사전 렌더 생략·초기 RSC 부담 감소
 const SensorDashboard = dynamic(
   () =>
     import("@/components/dashboard/SensorDashboard").then(
       (m) => m.SensorDashboard,
     ),
-  { loading: () => <SensorChartSkeleton /> },
+  { loading: () => <SensorChartSkeleton />, ssr: false },
 );
 
 const ActuatorPanel = dynamic(
   () =>
     import("@/components/dashboard/ActuatorPanel").then((m) => m.ActuatorPanel),
-  { loading: () => <ActuatorBlockSkeleton /> },
+  { loading: () => <ActuatorBlockSkeleton />, ssr: false },
 );
 
 /** MQTT 접힘 UI 청크 분리 — 차트·액추와 동시 파싱 부담 완화 */
@@ -50,7 +51,7 @@ const DashboardMqttCollapsible = dynamic(
     import("@/components/dashboard/DashboardMqttCollapsible").then(
       (m) => m.DashboardMqttCollapsible,
     ),
-  { loading: () => <MqttAsideSkeleton /> },
+  { loading: () => <MqttAsideSkeleton />, ssr: false },
 );
 
 /** 대시보드 탭 — 센서·액추는 넓게, MQTT는 xl에서 화면 오른쪽 고정(카드 zoom 1.3 반영해 열 너비 ~15rem) */

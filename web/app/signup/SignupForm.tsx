@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, type FormEvent } from "react";
+import { useState, useCallback, startTransition, type FormEvent } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
@@ -17,6 +17,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { DASHBOARD_PREFETCH_HREFS } from "@/lib/dashboardPrefetchRoutes";
+import { useIdleStaggeredRouterPrefetch } from "@/lib/navigation/useIdleStaggeredRouterPrefetch";
 
 /** 회원가입 폼 */
 export function SignupForm() {
@@ -27,41 +28,44 @@ export function SignupForm() {
   const [info, setInfo] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
-  // 가입 직후 대시보드 전 탭 프리패치
-  useEffect(() => {
-    DASHBOARD_PREFETCH_HREFS.forEach((href) => router.prefetch(href));
-  }, [router]);
+  // 대시보드 탭 청크 — 유휴·스태거 프리패치(로그인 폼과 동일 훅)
+  useIdleStaggeredRouterPrefetch(router, DASHBOARD_PREFETCH_HREFS);
 
-  async function onSubmit(e: FormEvent) {
-    e.preventDefault();
-    setError(null);
-    setInfo(null);
-    setLoading(true);
-    const supabase = createClient();
-    const { data, error: signError } = await supabase.auth.signUp({
-      email,
-      password,
-      options: {
-        emailRedirectTo: `${typeof window !== "undefined" ? window.location.origin : ""}/auth/callback?next=/dashboard`,
-      },
-    });
-    setLoading(false);
-    if (signError) {
-      if (process.env.NODE_ENV === "development") {
-        console.error("[signup]", signError.message, signError);
+  const onSubmit = useCallback(
+    async (e: FormEvent) => {
+      e.preventDefault();
+      setError(null);
+      setInfo(null);
+      setLoading(true);
+      const supabase = createClient();
+      const { data, error: signError } = await supabase.auth.signUp({
+        email,
+        password,
+        options: {
+          emailRedirectTo: `${typeof window !== "undefined" ? window.location.origin : ""}/auth/callback?next=/dashboard`,
+        },
+      });
+      setLoading(false);
+      if (signError) {
+        if (process.env.NODE_ENV === "development") {
+          console.error("[signup]", signError.message, signError);
+        }
+        setError(toKoreanAuthMessage(signError));
+        return;
       }
-      setError(toKoreanAuthMessage(signError));
-      return;
-    }
-    if (data.session) {
-      router.push("/dashboard");
-      router.refresh();
-      return;
-    }
-    setInfo(
-      "가입 메일을 보냈습니다. 이메일을 확인한 뒤 로그인해 주세요. (인증을 끈 프로젝트는 바로 로그인 화면으로 이동해 주세요.)",
-    );
-  }
+      if (data.session) {
+        startTransition(() => {
+          router.push("/dashboard");
+          router.refresh();
+        });
+        return;
+      }
+      setInfo(
+        "가입 메일을 보냈습니다. 이메일을 확인한 뒤 로그인해 주세요. (인증을 끈 프로젝트는 바로 로그인 화면으로 이동해 주세요.)",
+      );
+    },
+    [email, password, router],
+  );
 
   return (
     <Card className="w-full max-w-md border-cyan-400/25 shadow-[0_12px_48px_-16px_rgba(34,211,238,0.2)] ring-cyan-400/20">
@@ -114,7 +118,12 @@ export function SignupForm() {
           </Button>
           <p className="text-center text-sm text-muted-foreground">
             이미 계정이 있으신가요?{" "}
-            <Link href="/login" className="underline underline-offset-4">
+            <Link
+              href="/login"
+              prefetch
+              scroll={false}
+              className="underline underline-offset-4"
+            >
               로그인
             </Link>
           </p>
