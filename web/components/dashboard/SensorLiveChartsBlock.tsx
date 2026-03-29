@@ -17,6 +17,7 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
+import type { VerticalCoordinatesGenerator } from "recharts/types/cartesian/CartesianGrid";
 import {
   SENSOR_PROGRESS_BAR_CLASS,
   SENSOR_RANGE_LABELS,
@@ -35,25 +36,33 @@ const AXIS_TICK_SM = { fontSize: 11 } as const;
 const Y_AXIS_TICK = { ...AXIS_TICK_SM, dx: 6 } as const;
 const TOOLTIP_CONTENT_STYLE = { fontSize: 12 } as const;
 
+/** Recharts 3.x 틱 — 타입은 number|string 이지만 런타임에 TickItem(coordinate)이 올 수 있음 */
+function tickXCoordinate(t: unknown): number | undefined {
+  if (typeof t === "number" && Number.isFinite(t)) return t;
+  if (typeof t === "object" && t !== null && "coordinate" in t) {
+    const c = (t as { coordinate: unknown }).coordinate;
+    if (typeof c === "number" && Number.isFinite(c)) return c;
+  }
+  return undefined;
+}
+
 /** CartesianGrid 세로 보조선 — X축 틱 좌표와 맞추고, 틱이 없으면 플롯 폭을 균등 분할 */
-function sensorChartVerticalGridPoints(
-  arg: {
-    xAxis?: { ticks?: ReadonlyArray<{ coordinate?: number }> };
-    offset: { left: number; width: number };
-  },
-  _syncWithTicks: boolean,
-): number[] {
-  const { left, width } = arg.offset;
+const sensorChartVerticalGridPoints: VerticalCoordinatesGenerator = (
+  props,
+  syncWithTicks,
+) => {
+  void syncWithTicks;
+  const { left, width } = props.offset;
   if (!Number.isFinite(left) || !Number.isFinite(width) || width <= 0) {
     return [];
   }
   const minX = left;
   const maxX = left + width;
-  const fromTicks = (arg.xAxis?.ticks ?? [])
-    .map((t) => t.coordinate)
+  const fromTicks = (props.xAxis?.ticks ?? [])
+    .map(tickXCoordinate)
     .filter(
       (c): c is number =>
-        typeof c === "number" && Number.isFinite(c) && c >= minX - 2 && c <= maxX + 2,
+        c !== undefined && c >= minX - 2 && c <= maxX + 2,
     );
   const sorted = [...new Set(fromTicks)].sort((a, b) => a - b);
   if (sorted.length >= 2) {
@@ -67,7 +76,7 @@ function sensorChartVerticalGridPoints(
     { length: segments + 1 },
     (_, i) => minX + (width * i) / segments,
   );
-}
+};
 
 /** 피벗 결과 한 점 — dynamic 청크에서 타입만 공유 */
 export type SensorChartPoint = Record<string, string | number | null>;
