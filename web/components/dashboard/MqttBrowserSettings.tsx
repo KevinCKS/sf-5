@@ -194,17 +194,40 @@ export function MqttBrowserSettingsBody() {
   );
 }
 
+type MqttBrowserSettingsActionsProps = {
+  /** 헤더 다이얼로그 등에서 저장·env 적용 후 패널 닫기 */
+  onRequestClose?: () => void;
+};
+
 /** 저장·환경변수 — 다이얼로그 하단 고정 푸터에 두면 긴 폼을 펼쳐도 항상 보임 */
-export function MqttBrowserSettingsActions() {
+export function MqttBrowserSettingsActions({
+  onRequestClose,
+}: MqttBrowserSettingsActionsProps = {}) {
   const { handleSaveSettings, handleClearSettings } = useMqttConnectionCore();
 
   return (
     <div className={cn(mqttActionsCard, "w-full pt-1")}>
-      <Button type="button" size="sm" variant="secondary" onClick={handleSaveSettings}>
+      <Button
+        type="button"
+        size="sm"
+        variant="secondary"
+        onClick={() => {
+          handleSaveSettings();
+          onRequestClose?.();
+        }}
+      >
         <Save className="mr-1.5 size-3.5 shrink-0" aria-hidden />
         저장
       </Button>
-      <Button type="button" size="sm" variant="outline" onClick={handleClearSettings}>
+      <Button
+        type="button"
+        size="sm"
+        variant="outline"
+        onClick={() => {
+          handleClearSettings();
+          onRequestClose?.();
+        }}
+      >
         <Braces className="mr-1.5 size-3.5 shrink-0" aria-hidden />
         환경변수
       </Button>

@@ -41,23 +41,26 @@ const ActuatorPanel = dynamic(
 export function DashboardHomeContent() {
   return (
     <div className="dashboard-home-split mx-auto w-full max-w-7xl px-0 sm:px-1 lg:pl-0 lg:pr-5">
-      {/* lg: 좌·우 패딩 비대칭·열 간격 확대 / 센서 1.3·액추 0.7fr — 시각적으로 좌·우 살짝 밀기 */}
-      {/* lg: 행 높이=max(센서,액추) — 양열 stretch + 패널 h-full 로 카드 박스 높이 동일 */}
-      <div className="grid grid-cols-1 gap-5 lg:grid-cols-[1.3fr_0.7fr] lg:items-stretch lg:gap-x-10 lg:gap-y-6">
-        {/* lg: 양열 self-stretch — 행 높이=max(센서,액추) 를 두 패널이 동일하게 채움 */}
-        <div className="flex h-full min-h-0 min-w-0 flex-col self-stretch lg:w-full lg:-translate-x-1">
-          <SensorDashboard
-            hideMqttSettings
-            hideClearReadings
-            compactHomeLayout
-          />
-        </div>
-        <div className="flex h-full min-h-0 min-w-0 flex-col self-stretch lg:translate-x-2">
-          <ActuatorPanel
-            showMqttDetails={false}
-            showHistory={false}
-            compactHome
-          />
+      {/* 패널(카드) 바깥 구역 — globals 의 다층 그라데이션 백드롭 */}
+      <div className="dashboard-home-cards-backdrop p-3 sm:p-4 md:p-5 lg:px-6 lg:py-5">
+        {/* lg: 좌·우 패딩 비대칭·열 간격 확대 / 센서 1.3·액추 0.7fr — 시각적으로 좌·우 살짝 밀기 */}
+        {/* lg: 행 높이=max(센서,액추) — 양열 stretch + 패널 h-full 로 카드 박스 높이 동일 */}
+        <div className="grid grid-cols-1 gap-5 lg:grid-cols-[1.3fr_0.7fr] lg:items-stretch lg:gap-x-10 lg:gap-y-6">
+          {/* lg: 양열 self-stretch — 행 높이=max(센서,액추) 를 두 패널이 동일하게 채움 */}
+          <div className="flex h-full min-h-0 min-w-0 flex-col self-stretch lg:w-full lg:-translate-x-1">
+            <SensorDashboard
+              hideMqttSettings
+              hideClearReadings
+              compactHomeLayout
+            />
+          </div>
+          <div className="flex h-full min-h-0 min-w-0 flex-col self-stretch lg:translate-x-2">
+            <ActuatorPanel
+              showMqttDetails={false}
+              showHistory={false}
+              compactHome
+            />
+          </div>
         </div>
       </div>
     </div>

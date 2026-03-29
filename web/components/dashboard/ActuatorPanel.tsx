@@ -11,8 +11,11 @@ import {
 } from "react";
 import {
   Braces,
+  Droplets,
+  Fan,
   Gauge,
   History,
+  Lightbulb,
   Loader2,
   RefreshCw,
   Save,
@@ -237,7 +240,8 @@ function ActuatorOnOffToggle({
 }) {
   const isOn = state === "ON";
   const isOff = state === "OFF";
-  const knobHalf = compact ? "1.2rem" : "1.05rem";
+  /** 알약 높이 대비 여백 두도록 구슬 지름 축소 — thumbLeft 는 지름의 절반과 동기 */
+  const knobHalf = compact ? "0.975rem" : "0.85rem";
   /** gap-1(0.25rem) 두 열 — ON이면 좌측 알약 중심, 그 외(OFF·미확인)는 우측 */
   const thumbLeft =
     state === "ON"
@@ -267,8 +271,8 @@ function ActuatorOnOffToggle({
         className={cn(
           "pointer-events-none absolute top-1/2 z-[5] -translate-y-1/2 rounded-full transition-[left,box-shadow] duration-75 ease-out",
           compact
-            ? "size-[2.4rem] border border-white/50 bg-[radial-gradient(circle_at_28%_22%,oklch(0.96_0_0),oklch(0.8_0.012_260)_30%,oklch(0.58_0.02_260)_52%,oklch(0.38_0.022_260)_78%,oklch(0.3_0.02_260)_100%)] shadow-[0_4px_16px_rgba(0,0,0,0.82),0_0_14px_rgba(255,255,255,0.14),inset_0_2px_4px_rgba(255,255,255,0.58),inset_0_-4px_8px_rgba(0,0,0,0.48)]"
-            : "size-[2.1rem] border border-white/40 bg-[radial-gradient(circle_at_30%_24%,oklch(0.94_0_0),oklch(0.72_0.015_260)_35%,oklch(0.5_0.02_260)_60%,oklch(0.34_0.02_260)_100%)] shadow-[0_3px_14px_rgba(0,0,0,0.75),0_0_12px_rgba(255,255,255,0.1),inset_0_2px_3px_rgba(255,255,255,0.5),inset_0_-3px_6px_rgba(0,0,0,0.45)]",
+            ? "size-[1.95rem] border border-amber-200/55 bg-[radial-gradient(circle_at_32%_26%,oklch(0.99_0.09_98)_0%,oklch(0.93_0.075_97)_12%,oklch(0.76_0.058_96)_32%,oklch(0.51_0.048_95)_55%,oklch(0.34_0.042_94)_76%,oklch(0.26_0.038_96)_100%)] shadow-[0_5px_18px_rgba(0,0,0,0.9),0_2px_6px_rgba(0,0,0,0.55),0_0_18px_rgba(250,204,21,0.26),0_0_26px_rgba(253,230,138,0.22),inset_0_3px_6px_rgba(254,240,180,0.55),inset_0_2px_4px_rgba(255,251,235,0.38),inset_0_-5px_10px_rgba(0,0,0,0.52),inset_0_-2px_3px_rgba(250,230,150,0.12)]"
+            : "size-[1.7rem] border border-amber-200/50 bg-[radial-gradient(circle_at_34%_28%,oklch(0.99_0.085_98)_0%,oklch(0.91_0.068_97)_14%,oklch(0.69_0.052_96)_38%,oklch(0.45_0.044_95)_58%,oklch(0.30_0.038_94)_82%,oklch(0.23_0.034_96)_100%)] shadow-[0_4px_16px_rgba(0,0,0,0.85),0_2px_5px_rgba(0,0,0,0.5),0_0_16px_rgba(250,204,21,0.22),0_0_22px_rgba(253,230,138,0.18),inset_0_2px_5px_rgba(254,236,170,0.5),inset_0_2px_3px_rgba(255,250,230,0.35),inset_0_-4px_9px_rgba(0,0,0,0.5),inset_0_-2px_2px_rgba(248,220,130,0.1)]",
         )}
         style={{ left: thumbLeft }}
         aria-hidden
@@ -307,6 +311,23 @@ function ActuatorOnOffToggle({
   );
 }
 
+/** compact 제목 줄 오른쪽 — 액추 종류별 아이콘(ACTUATOR_ROWS 키와 동일) */
+function ActuatorRowKindIcon({ rowKey }: { rowKey: ActuatorRowDef["key"] }) {
+  const cls =
+    "size-4 shrink-0 text-primary/85 drop-shadow-[0_0_6px_oklch(0.62_0.12_175_/0.35)] sm:size-[1.125rem]";
+  switch (rowKey) {
+    case "led":
+      return <Lightbulb className={cls} aria-hidden />;
+    case "pump":
+      return <Droplets className={cls} aria-hidden />;
+    case "fan1":
+    case "fan2":
+      return <Fan className={cls} aria-hidden />;
+    default:
+      return <Gauge className={cls} aria-hidden />;
+  }
+}
+
 /** 원격 제어 카드 한 장 — 다른 액추의 hw·disp 만 바뀔 때 나머지 카드 리렌더 생략 */
 const ActuatorControlCard = memo(function ActuatorControlCard({
   row,
@@ -327,13 +348,35 @@ const ActuatorControlCard = memo(function ActuatorControlCard({
     >
       <div className={cn("min-w-0", compact ? "space-y-0.5" : "space-y-2")}>
         <div
-          className={
-            compact
-              ? "text-xs font-semibold leading-tight tracking-tight"
-              : "text-sm font-medium leading-none"
-          }
+          className={cn(
+            "flex min-w-0 items-center gap-2",
+            compact ? "justify-between" : "w-full justify-between",
+          )}
         >
-          {row.label}
+          <span
+            className={
+              compact
+                ? "min-w-0 flex-1 truncate text-xs font-semibold leading-tight tracking-tight"
+                : "min-w-0 flex-1 text-sm font-medium leading-none"
+            }
+          >
+            {row.label}
+          </span>
+          <span
+            className={cn(
+              "shrink-0 pl-0.5 sm:pl-1",
+              compact && "self-center",
+            )}
+            title={
+              row.key === "led"
+                ? "조명(LED)"
+                : row.key === "pump"
+                  ? "펌프"
+                  : "팬"
+            }
+          >
+            <ActuatorRowKindIcon rowKey={row.key} />
+          </span>
         </div>
         {compact ? (
           <>

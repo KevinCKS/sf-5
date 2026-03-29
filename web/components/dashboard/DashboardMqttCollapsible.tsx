@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useState, memo } from "react";
+import { createPortal } from "react-dom";
 import { Loader2, SlidersHorizontal, Wifi, WifiOff, X } from "lucide-react";
 import {
   MqttBrowserSettingsBody,
@@ -98,51 +99,59 @@ export const DashboardMqttCollapsible = memo(function DashboardMqttCollapsible({
         </button>
       </div>
 
-      {open ? (
-        <>
-          <div
-            className="fixed inset-0 z-40 bg-background/50 backdrop-blur-[2px]"
-            onClick={closePanel}
-            aria-hidden
-          />
-          <div
-            id="mqtt-settings-panel"
-            className="dashboard-panel-dialog fixed right-4 top-[4.25rem] z-50 flex max-h-[min(85vh,calc(100dvh-5rem))] w-[min(22rem,calc(100vw-2rem))] flex-col overflow-hidden rounded-2xl border border-white/10 bg-card text-card-foreground shadow-2xl sm:w-80 sm:max-w-[min(20rem,calc(100vw-3rem))]"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="mqtt-settings-title"
-          >
-            <div className="flex shrink-0 items-center justify-between gap-2 border-b border-white/10 px-3 py-2.5">
-              <h2
-                id="mqtt-settings-title"
-                className="flex items-center gap-2 text-sm font-semibold tracking-tight"
-              >
-                <SlidersHorizontal
-                  className="size-4 shrink-0 text-primary"
-                  aria-hidden
-                />
-                MQTT 토픽 설정
-              </h2>
-              <button
-                type="button"
-                className="text-muted-foreground hover:bg-muted/60 hover:text-foreground inline-flex size-8 items-center justify-center rounded-md transition-colors"
+      {open && typeof document !== "undefined"
+        ? createPortal(
+            <>
+              {/*
+                헤더에 backdrop-blur 가 있으면 fixed 가 뷰포트가 아니라 헤더 박스 기준으로 잡혀
+                패널이 잘림 → body 로 포털해 escape
+              */}
+              <div
+                className="fixed inset-0 z-40 bg-background/50 backdrop-blur-[2px]"
                 onClick={closePanel}
-                aria-label="MQTT 토픽 설정 닫기"
+                aria-hidden
+              />
+              <div
+                id="mqtt-settings-panel"
+                className="fixed bottom-4 right-4 top-[4.25rem] z-50 flex w-[min(22rem,calc(100vw-2rem))] min-h-0 flex-col overflow-hidden rounded-2xl border border-white/10 bg-card text-sm text-card-foreground shadow-2xl sm:w-80 sm:max-w-[min(20rem,calc(100vw-3rem))]"
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="mqtt-settings-title"
               >
-                <X className="size-4" />
-              </button>
-            </div>
-            {/* 본문만 스크롤 — 저장/환경변수는 하단 고정으로 카드 3 펼침 시에도 항상 보임 */}
-            <div className="min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain px-3 pt-3">
-              <MqttBrowserSettingsBody />
-              <MqttConnectionBar />
-            </div>
-            <div className="shrink-0 border-t border-white/10 bg-card/95 px-3 pb-3 pt-2 backdrop-blur-sm">
-              <MqttBrowserSettingsActions />
-            </div>
-          </div>
-        </>
-      ) : null}
+                <div className="flex shrink-0 items-center justify-between gap-2 border-b border-white/10 px-3 py-2.5">
+                  <h2
+                    id="mqtt-settings-title"
+                    className="flex items-center gap-2 text-sm font-semibold tracking-tight"
+                  >
+                    <SlidersHorizontal
+                      className="size-4 shrink-0 text-primary"
+                      aria-hidden
+                    />
+                    MQTT 토픽 설정
+                  </h2>
+                  <button
+                    type="button"
+                    className="text-muted-foreground hover:bg-muted/60 hover:text-foreground inline-flex size-8 items-center justify-center rounded-md transition-colors"
+                    onClick={closePanel}
+                    aria-label="MQTT 토픽 설정 닫기"
+                  >
+                    <X className="size-4" />
+                  </button>
+                </div>
+                <div className="min-h-0 flex-1 basis-0 overflow-y-auto overscroll-contain px-3 pt-3 [scrollbar-gutter:stable]">
+                  <div className="space-y-4 pb-3">
+                    <MqttBrowserSettingsBody />
+                    <MqttConnectionBar />
+                  </div>
+                </div>
+                <div className="shrink-0 border-t border-white/10 bg-card/95 px-3 pb-3 pt-2 backdrop-blur-sm">
+                  <MqttBrowserSettingsActions onRequestClose={closePanel} />
+                </div>
+              </div>
+            </>,
+            document.body,
+          )
+        : null}
     </div>
   );
 });
