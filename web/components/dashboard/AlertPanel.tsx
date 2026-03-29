@@ -9,7 +9,15 @@ import {
   startTransition,
   memo,
 } from "react";
-import { Loader2 } from "lucide-react";
+import {
+  Bell,
+  FlaskConical,
+  History,
+  Loader2,
+  RefreshCw,
+  Save,
+  SlidersHorizontal,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -20,7 +28,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { KO_SHORT_DATETIME } from "@/lib/datetime/koShortDateTime";
+import { formatShortDateTime } from "@/lib/datetime/koShortDateTime";
 import {
   dashboardFetchInit,
   dashboardJsonFetchInit,
@@ -139,9 +147,15 @@ const AlertLogListItem = memo(function AlertLogListItem({
   message: string;
 }) {
   return (
-    <li className="[contain-intrinsic-size:auto_4rem] [content-visibility:auto] border-b border-border/40 pb-2 last:border-0">
-      <span className="text-muted-foreground text-xs">{createdLabel}</span>
-      <p className="mt-0.5">{message}</p>
+    <li className="[contain-intrinsic-size:auto_4rem] [content-visibility:auto] flex gap-2 border-b border-border/40 pb-2 last:border-0">
+      <Bell
+        className="mt-0.5 size-3 shrink-0 text-primary/60"
+        aria-hidden
+      />
+      <div className="min-w-0 flex-1">
+        <span className="text-muted-foreground text-xs">{createdLabel}</span>
+        <p className="mt-0.5">{message}</p>
+      </div>
     </li>
   );
 });
@@ -217,9 +231,15 @@ const AlertSensorSettingsRow = memo(function AlertSensorSettingsRow({
               aria-label="저장 중"
             />
           ) : hasSetting ? (
-            "저장"
+            <span className="inline-flex items-center justify-center gap-1">
+              <Save className="size-3.5 shrink-0" aria-hidden />
+              저장
+            </span>
           ) : (
-            "등록"
+            <span className="inline-flex items-center justify-center gap-1">
+              <Save className="size-3.5 shrink-0" aria-hidden />
+              등록
+            </span>
           )}
         </Button>
       </td>
@@ -260,7 +280,7 @@ export function AlertPanel() {
     return logs.map((log) => {
       let createdLabel = labelByCreated.get(log.created_at);
       if (createdLabel === undefined) {
-        createdLabel = KO_SHORT_DATETIME.format(new Date(log.created_at));
+        createdLabel = formatShortDateTime(log.created_at);
         labelByCreated.set(log.created_at, createdLabel);
       }
       return {
@@ -551,7 +571,10 @@ export function AlertPanel() {
   return (
     <div className="space-y-8">
       <section className="dashboard-panel">
-        <h2 className="text-base font-semibold tracking-tight">임계치 설정</h2>
+        <h2 className="flex items-center gap-2 text-base font-semibold tracking-tight">
+          <SlidersHorizontal className="size-5 shrink-0 text-primary" aria-hidden />
+          임계치 설정
+        </h2>
         <p className="text-muted-foreground mt-1 text-sm">
           센서별 하한·상한을 지정하면, MQTT 또는 아래 시뮬로 값이 저장될 때 초과 여부를 검사해
           알림 이력에 남깁니다.
@@ -621,7 +644,10 @@ export function AlertPanel() {
       </section>
 
       <section className="dashboard-panel">
-        <h2 className="text-base font-semibold tracking-tight">임계치 시뮬레이션</h2>
+        <h2 className="flex items-center gap-2 text-base font-semibold tracking-tight">
+          <FlaskConical className="size-5 shrink-0 text-primary" aria-hidden />
+          임계치 시뮬레이션
+        </h2>
         <p className="text-muted-foreground mt-1 text-sm">
           선택한 센서에 측정값 1건을 넣고 즉시 임계치를 검사합니다(MQTT 없이 검증 가능).
         </p>
@@ -665,11 +691,14 @@ export function AlertPanel() {
           >
             {simBusy ? (
               <>
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden />
                 실행 중
               </>
             ) : (
-              "검사 실행"
+              <>
+                <FlaskConical className="mr-2 size-4 shrink-0" aria-hidden />
+                검사 실행
+              </>
             )}
           </Button>
         </div>
@@ -677,7 +706,10 @@ export function AlertPanel() {
 
       <section className="dashboard-panel">
         <div className="flex items-center justify-between gap-2">
-          <h2 className="text-base font-semibold tracking-tight">알림 이력</h2>
+          <h2 className="flex items-center gap-2 text-base font-semibold tracking-tight">
+            <History className="size-5 shrink-0 text-primary" aria-hidden />
+            알림 이력
+          </h2>
           <Button
             type="button"
             variant="outline"
@@ -685,6 +717,14 @@ export function AlertPanel() {
             onClick={refreshLogs}
             disabled={logsLoading}
           >
+            <RefreshCw
+              className={
+                logsLoading
+                  ? "mr-1.5 size-3.5 shrink-0 animate-spin"
+                  : "mr-1.5 size-3.5 shrink-0"
+              }
+              aria-hidden
+            />
             새로고침
           </Button>
         </div>

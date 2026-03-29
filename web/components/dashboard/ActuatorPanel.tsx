@@ -9,7 +9,16 @@ import {
   startTransition,
   memo,
 } from "react";
-import { Gauge, Loader2, RefreshCw, Send, Trash2 } from "lucide-react";
+import {
+  Braces,
+  Gauge,
+  History,
+  Loader2,
+  RefreshCw,
+  Save,
+  Send,
+  Trash2,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -22,12 +31,13 @@ import {
   saveBrowserMqttSettings,
   type BrowserMqttSettings,
 } from "@/lib/mqtt/browserMqttSettings";
-import { KO_SHORT_DATETIME } from "@/lib/datetime/koShortDateTime";
 import {
   dashboardFetchInit,
   dashboardJsonFetchInit,
 } from "@/lib/http/dashboardFetchInit";
 import { parseResponseBodyJson } from "@/lib/http/parseResponseBodyJson";
+import { formatShortDateTime } from "@/lib/datetime/koShortDateTime";
+import { cn } from "@/lib/utils";
 
 type ActuatorControlRow = {
   id: string;
@@ -45,6 +55,8 @@ type ActuatorPanelProps = {
   showControls?: boolean;
   /** false: DB 탭에서 제어·이력만 분리할 때 */
   showHistory?: boolean;
+  /** true: 대시보드 홈 2열 — 설명·카드 패딩 축소 */
+  compactHome?: boolean;
 };
 
 /** 이력 한 줄 — actionError·로딩만 바뀔 때 동일 행 재렌더 생략 */
@@ -73,20 +85,9 @@ const ActuatorHistoryListItem = memo(function ActuatorHistoryListItem({
 type ActuatorDisplayResolved = {
   state: string | undefined;
   variant: "board" | "command";
-  subLabel: string;
+  /** 명령 시각 또는 보드 갱신 시각(짧은 포맷) */
+  timeLabel: string;
 };
-
-/** 최근 이력 시각 — 표 행용(컴포넌트 밖 순수 함수) */
-function formatHistoryTime(iso: string): string {
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "—";
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  const hh = String(d.getHours()).padStart(2, "0");
-  const mm = String(d.getMinutes()).padStart(2, "0");
-  return `${y}-${m}-${day} ${hh}:${mm}`;
-}
 
 function labelForActuatorKey(key: string) {
   return ACTUATOR_ROWS.find((r) => r.key === key)?.label ?? key;
@@ -149,14 +150,14 @@ function computeActuatorDisplay(
     return {
       state: echo.state,
       variant: "command",
-      subLabel: `${KO_SHORT_DATETIME.format(new Date(echo.atMs))} · 보드 보고 대기`,
+      timeLabel: formatShortDateTime(echo.atMs),
     };
   }
   return {
     state: hw?.state,
     variant: "board",
-    subLabel: hw?.updated_at
-      ? KO_SHORT_DATETIME.format(new Date(hw.updated_at))
+    timeLabel: hw?.updated_at
+      ? formatShortDateTime(hw.updated_at)
       : "갱신 시각 —",
   };
 }
@@ -165,21 +166,27 @@ function computeActuatorDisplay(
 function actuatorStateBadge(
   state: string | undefined,
   variant: "board" | "command" = "board",
+  compact = false,
 ) {
+  const sizeCn = compact
+    ? "px-2 py-0.5 text-xs font-semibold leading-none"
+    : "px-2 py-0.5 text-xs";
   if (!state) {
     return (
-      <span className="text-muted-foreground font-mono text-xs tabular-nums">—</span>
+      <span className={cn("text-muted-foreground font-mono tabular-nums", sizeCn)}>
+        —
+      </span>
     );
   }
   const on = state === "ON";
+  /** 명령 에코(보드 확인 전): 주황 — ON/OFF 모두 동일 톤 */
   if (variant === "command") {
     return (
       <span
-        className={
-          on
-            ? "inline-flex rounded-md border border-sky-500/50 bg-sky-500/15 px-2 py-0.5 font-mono text-xs font-semibold text-sky-900 dark:text-sky-100"
-            : "inline-flex rounded-md border border-amber-500/40 bg-amber-500/10 px-2 py-0.5 font-mono text-xs font-medium text-amber-900 dark:text-amber-100"
-        }
+        className={cn(
+          "inline-flex rounded-md border border-orange-500/50 bg-orange-500/15 font-mono font-semibold text-orange-950 dark:text-orange-100",
+          sizeCn,
+        )}
       >
         {state}
       </span>
@@ -187,11 +194,13 @@ function actuatorStateBadge(
   }
   return (
     <span
-      className={
+      className={cn(
+        "inline-flex rounded-md border font-mono",
+        sizeCn,
         on
-          ? "inline-flex rounded-md border border-emerald-500/40 bg-emerald-500/15 px-2 py-0.5 font-mono text-xs font-semibold text-emerald-800 dark:text-emerald-200"
-          : "inline-flex rounded-md border border-muted-foreground/30 bg-muted/50 px-2 py-0.5 font-mono text-xs font-medium text-muted-foreground"
-      }
+          ? "border-emerald-500/40 bg-emerald-500/15 font-semibold text-emerald-800 dark:text-emerald-200"
+          : "border-muted-foreground/30 bg-muted/50 font-medium text-muted-foreground",
+      )}
     >
       {state}
     </span>
@@ -203,72 +212,180 @@ type ActuatorRowDef = (typeof ACTUATOR_ROWS)[number];
 type ActuatorControlCardProps = {
   row: ActuatorRowDef;
   disp: ActuatorDisplayResolved;
-  showHwSpinner: boolean;
   commandTopic: string;
   publishState: (
     topic: string,
     state: "ON" | "OFF",
     rowKey: string,
   ) => Promise<void>;
+  compact?: boolean;
+  /** true: ON/OFF 클릭 후 — 「명령」 라벨(아이콘+글자) 숨김 */
+  hideCommandLabel?: boolean;
 };
+
+/** 참조 UI: ON/OFF 각각 알약 버튼 + 메탈 손잡이가 선택 쪽(ON=좌, OFF=우)으로 이동 */
+function ActuatorOnOffToggle({
+  state,
+  onOn,
+  onOff,
+  compact = false,
+}: {
+  state: string | undefined;
+  onOn: () => void;
+  onOff: () => void;
+  compact?: boolean;
+}) {
+  const isOn = state === "ON";
+  const isOff = state === "OFF";
+  const knobHalf = compact ? "1.2rem" : "1.05rem";
+  /** gap-1(0.25rem) 두 열 — ON이면 좌측 알약 중심, 그 외(OFF·미확인)는 우측 */
+  const thumbLeft =
+    state === "ON"
+      ? `calc((100% - 0.25rem) / 4 - ${knobHalf})`
+      : `calc(3 * (100% - 0.25rem) / 4 + 0.25rem - ${knobHalf})`;
+
+  const pillClass = cn(
+    "relative z-10 min-h-0 min-w-0 flex-1 rounded-full border-2 py-0 text-center transition-[color,box-shadow,border-color,background] duration-150 ease-out select-none focus:outline-none active:scale-100",
+    "bg-gradient-to-b from-zinc-700/55 via-zinc-800/78 to-zinc-950/92 text-zinc-300",
+    "text-[10px] font-extrabold uppercase tracking-wide sm:text-[11px]",
+    "focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-emerald-400/40",
+  );
+
+  return (
+    <div
+      className={cn(
+        "relative isolate box-border flex shrink-0 items-stretch gap-1 overflow-visible",
+        compact
+          ? "h-10 w-[7.5rem] min-h-10 max-h-10 min-w-[7.5rem] max-w-[7.5rem]"
+          : "h-9 w-[7.25rem] min-h-9 max-h-9 min-w-[7.25rem] max-w-[7.25rem]",
+      )}
+      role="group"
+      aria-label="ON/OFF 제어"
+    >
+      {/* 메탈 손잡이 — 선택된 알약 중앙(ON=좌·OFF=우), 글자는 버튼 층에서 표시 */}
+      <div
+        className={cn(
+          "pointer-events-none absolute top-1/2 z-[5] -translate-y-1/2 rounded-full transition-[left,box-shadow] duration-75 ease-out",
+          compact
+            ? "size-[2.4rem] border border-white/50 bg-[radial-gradient(circle_at_28%_22%,oklch(0.96_0_0),oklch(0.8_0.012_260)_30%,oklch(0.58_0.02_260)_52%,oklch(0.38_0.022_260)_78%,oklch(0.3_0.02_260)_100%)] shadow-[0_4px_16px_rgba(0,0,0,0.82),0_0_14px_rgba(255,255,255,0.14),inset_0_2px_4px_rgba(255,255,255,0.58),inset_0_-4px_8px_rgba(0,0,0,0.48)]"
+            : "size-[2.1rem] border border-white/40 bg-[radial-gradient(circle_at_30%_24%,oklch(0.94_0_0),oklch(0.72_0.015_260)_35%,oklch(0.5_0.02_260)_60%,oklch(0.34_0.02_260)_100%)] shadow-[0_3px_14px_rgba(0,0,0,0.75),0_0_12px_rgba(255,255,255,0.1),inset_0_2px_3px_rgba(255,255,255,0.5),inset_0_-3px_6px_rgba(0,0,0,0.45)]",
+        )}
+        style={{ left: thumbLeft }}
+        aria-hidden
+      />
+      <button
+        type="button"
+        aria-label="ON 발행"
+        aria-pressed={isOn}
+        className={cn(
+          pillClass,
+          isOn
+            ? "border-emerald-300/90 text-emerald-50 shadow-[0_0_18px_-4px_rgba(52,211,153,0.75),0_0_36px_-12px_rgba(16,185,129,0.45),inset_0_2px_10px_rgba(0,0,0,0.42),inset_0_-2px_12px_rgba(16,185,129,0.2)]"
+            : "border-zinc-500/65 text-zinc-400 shadow-[inset_0_3px_10px_rgba(0,0,0,0.52),inset_0_-1px_0_rgba(255,255,255,0.06),0_3px_8px_rgba(0,0,0,0.48)]",
+          !isOn && !isOff && "text-zinc-400",
+        )}
+        onClick={onOn}
+      >
+        ON
+      </button>
+      <button
+        type="button"
+        aria-label="OFF 발행"
+        aria-pressed={isOff}
+        className={cn(
+          pillClass,
+          "focus-visible:ring-zinc-400/40",
+          isOff
+            ? "border-zinc-100/50 text-zinc-50 shadow-[0_0_16px_-4px_rgba(228,228,231,0.55),0_0_30px_-10px_rgba(161,161,170,0.3),inset_0_2px_10px_rgba(0,0,0,0.45),inset_0_-1px_0_rgba(255,255,255,0.1)]"
+            : "border-zinc-600/75 text-zinc-400 shadow-[inset_0_3px_10px_rgba(0,0,0,0.55),inset_0_-1px_0_rgba(255,255,255,0.05),0_3px_8px_rgba(0,0,0,0.42)]",
+        )}
+        onClick={onOff}
+      >
+        OFF
+      </button>
+    </div>
+  );
+}
 
 /** 원격 제어 카드 한 장 — 다른 액추의 hw·disp 만 바뀔 때 나머지 카드 리렌더 생략 */
 const ActuatorControlCard = memo(function ActuatorControlCard({
   row,
   disp,
-  showHwSpinner,
   commandTopic,
   publishState,
+  compact = false,
+  hideCommandLabel = false,
 }: ActuatorControlCardProps) {
   return (
-    <div className="flex flex-wrap items-stretch justify-between gap-3 rounded-md border bg-muted/20 px-3 py-3">
-      <div className="min-w-0 flex-1 space-y-2">
-        <div className="text-sm font-medium leading-none">{row.label}</div>
-        <div className="text-muted-foreground flex flex-wrap items-center gap-2 text-xs">
-          <span
-            className="inline-flex items-center gap-1"
-            title={
-              disp.variant === "command"
-                ? "서버가 MQTT 발행까지 완료(보드 §6.3 보고 전)"
-                : "actuator_status (§6.3)"
-            }
-          >
-            {disp.variant === "command" ? (
-              <Send className="text-sky-600/90 dark:text-sky-400 h-3.5 w-3.5 shrink-0" aria-hidden />
-            ) : (
-              <Gauge className="text-muted-foreground/80 h-3.5 w-3.5 shrink-0" aria-hidden />
-            )}
-            <span>{disp.variant === "command" ? "명령" : "보드"}</span>
-          </span>
-          {showHwSpinner ? (
-            <Loader2 className="h-3.5 w-3.5 animate-spin opacity-70" aria-hidden />
-          ) : (
-            actuatorStateBadge(disp.state, disp.variant)
-          )}
-          <span className="text-muted-foreground max-w-[min(100%,14rem)] font-mono text-[11px] leading-snug tabular-nums sm:max-w-none">
-            {disp.subLabel}
-          </span>
+    <div
+      className={cn(
+        "dashboard-nest-actuator-row",
+        compact
+          ? "grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-2 gap-y-0.5 rounded-xl px-3 py-2 sm:px-3.5 sm:py-2.5"
+          : "flex flex-wrap items-stretch justify-between gap-3 px-3 py-3",
+      )}
+    >
+      <div className={cn("min-w-0", compact ? "space-y-0.5" : "space-y-2")}>
+        <div
+          className={
+            compact
+              ? "text-xs font-semibold leading-tight tracking-tight"
+              : "text-sm font-medium leading-none"
+          }
+        >
+          {row.label}
         </div>
+        {compact ? (
+          <>
+            {disp.variant === "command" && !hideCommandLabel ? (
+              <div
+                className="text-muted-foreground inline-flex items-center gap-1 text-[10px] leading-tight"
+                title="서버가 MQTT 발행까지 완료(§6.3 보고 전)"
+              >
+                <Send
+                  className="text-sky-600/90 dark:text-sky-400 h-3 w-3 shrink-0"
+                  aria-hidden
+                />
+                <span className="whitespace-nowrap">명령</span>
+              </div>
+            ) : null}
+            <div className="flex min-h-[1.25rem] items-center">
+              {actuatorStateBadge(disp.state, disp.variant, true)}
+            </div>
+            <p className="text-muted-foreground/90 max-w-full overflow-x-auto font-mono text-[10px] leading-none tabular-nums whitespace-nowrap [scrollbar-width:none] sm:text-[11px]">
+              {disp.timeLabel}
+            </p>
+          </>
+        ) : (
+          <div className="text-muted-foreground flex flex-wrap items-center gap-2 text-xs">
+            {disp.variant === "command" && !hideCommandLabel ? (
+              <span
+                className="inline-flex shrink-0 items-center gap-1 whitespace-nowrap"
+                title="서버가 MQTT 발행까지 완료(§6.3 보고 전)"
+              >
+                <Send className="text-sky-600/90 dark:text-sky-400 h-3.5 w-3.5 shrink-0" aria-hidden />
+                <span>명령</span>
+              </span>
+            ) : null}
+            <span className="shrink-0">{actuatorStateBadge(disp.state, disp.variant)}</span>
+            <span
+              className={cn(
+                "text-muted-foreground max-w-[min(100%,14rem)] font-mono leading-snug tabular-nums sm:max-w-none",
+                "text-[11px]",
+              )}
+            >
+              {disp.timeLabel}
+            </span>
+          </div>
+        )}
       </div>
-      <div className="flex shrink-0 items-center gap-2 self-center">
-        <Button
-          type="button"
-          size="sm"
-          variant="secondary"
-          className="min-w-[4.25rem]"
-          onClick={() => void publishState(commandTopic, "ON", row.key)}
-        >
-          ON
-        </Button>
-        <Button
-          type="button"
-          size="sm"
-          variant="outline"
-          className="min-w-[4.25rem]"
-          onClick={() => void publishState(commandTopic, "OFF", row.key)}
-        >
-          OFF
-        </Button>
+      <div className="flex shrink-0 items-center">
+        <ActuatorOnOffToggle
+          state={disp.state}
+          compact={compact}
+          onOn={() => void publishState(commandTopic, "ON", row.key)}
+          onOff={() => void publishState(commandTopic, "OFF", row.key)}
+        />
       </div>
     </div>
   );
@@ -279,6 +396,7 @@ export function ActuatorPanel({
   showMqttDetails = true,
   showControls = true,
   showHistory = true,
+  compactHome = false,
 }: ActuatorPanelProps) {
   const [history, setHistory] = useState<ActuatorControlRow[]>([]);
   const [loadingList, setLoadingList] = useState(showHistory);
@@ -286,8 +404,6 @@ export function ActuatorPanel({
   const [hwByKey, setHwByKey] = useState<Record<string, HwRow>>({});
   const [hwError, setHwError] = useState<string | null>(null);
   const [loadingHw, setLoadingHw] = useState(showControls);
-  /** 동일 행 연타·중복 요청만 막음(UI 비활성·스피너 없음) */
-  const publishInFlightRef = useRef<Set<string>>(new Set());
   /** 서버 발행 성공 직후 표시(보드 §6.3 보고 전까지). 보드 updated_at 이 명령 시각 이후면 DB 값 우선 */
   const [commandEchoByKey, setCommandEchoByKey] = useState<
     Record<string, { state: "ON" | "OFF"; atMs: number }>
@@ -295,6 +411,8 @@ export function ActuatorPanel({
   const [clearing, setClearing] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const [mqttSettingsHint, setMqttSettingsHint] = useState<string | null>(null);
+  /** 액추 ON/OFF 클릭 후 「상태 새로고침」「명령」 라벨 숨김 */
+  const [hideActuatorAuxUi, setHideActuatorAuxUi] = useState(false);
   const { form: mqttForm, setForm: setMqttForm } = useMqttForm();
 
   /** 제어 카드 — mqttForm·기타 입력만 바뀔 때 보드 표시 로직 재실행 방지 */
@@ -314,7 +432,7 @@ export function ActuatorPanel({
     return history.map((h) => {
       let timeLabel = timeLabelByRecorded.get(h.recorded_at);
       if (timeLabel === undefined) {
-        timeLabel = formatHistoryTime(h.recorded_at);
+        timeLabel = formatShortDateTime(h.recorded_at);
         timeLabelByRecorded.set(h.recorded_at, timeLabel);
       }
       let rowLabel = rowLabelByKey.get(h.actuator_key);
@@ -461,9 +579,25 @@ export function ActuatorPanel({
 
   const publishState = useCallback(
     async (topic: string, state: "ON" | "OFF", rowKey: string) => {
-      if (publishInFlightRef.current.has(rowKey)) return;
-      publishInFlightRef.current.add(rowKey);
       setActionError(null);
+      setHideActuatorAuxUi(true);
+
+      /** 낙관적 UI — 클릭 즉시 손잡이·상태배지(주황). 연타 허용, echoAtMs 로 오래된 응답만 롤백. */
+      const echoAtMs = Date.now();
+      setCommandEchoByKey((prev) => ({
+        ...prev,
+        [rowKey]: { state, atMs: echoAtMs },
+      }));
+
+      const revertIfStillThisEcho = () => {
+        setCommandEchoByKey((prev) => {
+          if (prev[rowKey]?.atMs !== echoAtMs) return prev;
+          const next = { ...prev };
+          delete next[rowKey];
+          return next;
+        });
+      };
+
       try {
         const res = await fetch("/api/mqtt/publish", {
           method: "POST",
@@ -479,27 +613,26 @@ export function ActuatorPanel({
           mqttOk?: boolean;
         }>(res);
         if (!parsed.parseOk) {
+          revertIfStillThisEcho();
+          setHideActuatorAuxUi(false);
           setActionError(parsed.fallbackMessage);
           return;
         }
         const json = parsed.data;
         if (!res.ok) {
+          revertIfStillThisEcho();
+          setHideActuatorAuxUi(false);
           setActionError(json.error ?? `HTTP ${res.status}`);
           return;
         }
-        setCommandEchoByKey((prev) => ({
-          ...prev,
-          [rowKey]: { state, atMs: Date.now() },
-        }));
-        // 이력·§6.3 보드 상태를 동시에 갱신해 ON/OFF 직후 표시 지연 단축
         void Promise.all([
           loadHistory(),
           loadHardware({ silent: true }),
         ]);
       } catch {
+        revertIfStillThisEcho();
+        setHideActuatorAuxUi(false);
         setActionError("네트워크 오류가 발생했습니다.");
-      } finally {
-        publishInFlightRef.current.delete(rowKey);
       }
     },
     [loadHistory, loadHardware],
@@ -564,27 +697,54 @@ export function ActuatorPanel({
   }, [clearHistory]);
 
   return (
-    <section className="dashboard-panel">
-      <h2 className="text-base font-semibold tracking-tight">
-        {showControls ? "Actuator" : showHistory ? "액추에이터 제어 이력" : "Actuator"}
-      </h2>
-      {showControls ? (
-        <p className="mt-1 text-sm text-muted-foreground">
-          §6.2: 명령 발행 후 이력 저장. 클릭 직후에는 <strong className="text-foreground font-medium">명령</strong> 배지로
-          서버 발행 결과를 바로 보여 주고, §6.3 보드 MQTT 보고가 오면 <strong className="text-foreground font-medium">보드</strong> 값으로
-          바뀝니다. 브로커·§6.3 구독은{" "}
-          <strong className="text-foreground font-medium">localStorage</strong> 에 저장된 MQTT 설정과 같습니다.
-        </p>
-      ) : showHistory ? (
-        <p className="text-muted-foreground mt-1 text-sm">
-          actuator_controls 테이블에서 본인 명령 이력을 조회합니다.
-        </p>
-      ) : null}
+    <section
+      className={cn(
+        "dashboard-panel",
+        compactHome && "flex h-full min-h-0 flex-col",
+      )}
+    >
+      {showControls && compactHome ? (
+        <div className="flex min-w-0 shrink-0 flex-wrap items-center gap-x-2 gap-y-0">
+          <h2 className="flex shrink-0 items-center gap-1.5 text-sm font-semibold tracking-tight">
+            <Gauge className="size-4 shrink-0 text-primary" aria-hidden />
+            Actuator
+          </h2>
+          <p className="text-muted-foreground min-w-0 text-[10px] leading-tight">
+            <span className="font-semibold text-foreground">ON/OFF</span>
+            {" · "}
+            <span className="text-foreground/90">상태</span>
+            {" · "}
+            <span className="text-foreground/90">제어</span>
+          </p>
+        </div>
+      ) : (
+        <>
+          <h2 className="flex items-center gap-2 text-base font-semibold tracking-tight">
+            <Gauge className="size-5 shrink-0 text-primary" aria-hidden />
+            {showControls ? "Actuator" : showHistory ? "액추에이터 제어 이력" : "Actuator"}
+          </h2>
+          {showControls ? (
+            <p className="mt-1 text-sm text-muted-foreground">
+              §6.2: 명령 발행 후 이력 저장. 클릭 직후에는 <strong className="text-foreground font-medium">명령</strong> 배지로
+              서버 발행 결과를 바로 보여 주고, §6.3 보드 MQTT 보고가 오면 <strong className="text-foreground font-medium">보드</strong> 값으로
+              바뀝니다. 브로커·§6.3 구독은{" "}
+              <strong className="text-foreground font-medium">localStorage</strong> 에 저장된 MQTT 설정과 같습니다.
+            </p>
+          ) : showHistory ? (
+            <p className="text-muted-foreground mt-1 text-sm">
+              actuator_controls 테이블에서 본인 명령 이력을 조회합니다.
+            </p>
+          ) : null}
+        </>
+      )}
 
       {showMqttDetails ? (
       <details className="group mt-3 space-y-2 rounded-md border bg-muted/30 px-2 py-2 text-xs">
         <summary className="cursor-pointer select-none font-medium text-foreground">
-          연결·토픽 설정 (PRD §6.2·§6.3)
+          <span className="inline-flex items-center gap-2">
+            <Send className="size-3.5 shrink-0 text-primary/85" aria-hidden />
+            연결·토픽 설정 (PRD §6.2·§6.3)
+          </span>
         </summary>
         <div className="mt-2 grid gap-2 sm:grid-cols-2">
           <div className="space-y-1 sm:col-span-2">
@@ -700,12 +860,14 @@ export function ActuatorPanel({
             </div>
           </div>
         </div>
-        <div className="flex flex-wrap gap-2 pt-1">
+        <div className="flex flex-wrap justify-center gap-2 pt-1">
           <Button type="button" size="sm" variant="secondary" onClick={handleSaveMqttSettings}>
-            이 브라우저에 저장
+            <Save className="mr-1.5 size-3.5 shrink-0" aria-hidden />
+            저장
           </Button>
           <Button type="button" size="sm" variant="outline" onClick={handleClearMqttSettings}>
-            저장 지우기(env만)
+            <Braces className="mr-1.5 size-3.5 shrink-0" aria-hidden />
+            환경변수
           </Button>
         </div>
       </details>
@@ -715,58 +877,98 @@ export function ActuatorPanel({
       ) : null}
 
       {showControls && hwError ? (
-        <p className="text-destructive mt-2 text-xs" role="status">
+        <p
+          className={cn(
+            "text-destructive mt-2 text-xs",
+            compactHome && "shrink-0",
+          )}
+          role="status"
+        >
           {hwError}
         </p>
       ) : null}
 
       {showControls ? (
-      <>
-      <div className="mt-4 flex flex-wrap items-center justify-between gap-2 border-b border-dashed pb-3">
-        <h3 className="text-muted-foreground text-xs font-medium uppercase tracking-wide">
-          원격 제어 · 보드 상태
-        </h3>
-        <Button
-          type="button"
-          size="sm"
-          variant="outline"
-          disabled={loadingHw}
-          onClick={onRefreshHardware}
-          className="shrink-0"
-        >
-          {loadingHw ? (
-            <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
-          ) : (
-            <RefreshCw className="h-4 w-4" aria-hidden />
+        <div
+          className={cn(
+            "dashboard-nest-actuator",
+            compactHome
+              ? "mt-2 flex min-h-0 flex-1 flex-col !p-4 sm:!p-5"
+              : "mt-4",
           )}
-          <span className="ml-1.5">상태 새로고침</span>
-        </Button>
-      </div>
+        >
+          <div
+            className={cn(
+              "shrink-0 border-b border-dashed border-white/22",
+              compactHome
+                ? "grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-2 gap-y-2 pb-2"
+                : "flex flex-wrap items-center justify-between gap-x-3 gap-y-2 pb-3",
+            )}
+          >
+            {/* 왼쪽: 상태(보드)·오른쪽: 제어(토글 열) — 카드 그리드와 동일 폭 정렬 */}
+            <div
+              className={cn(
+                "flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1",
+                compactHome ? "col-start-1" : "",
+              )}
+            >
+              <h3 className="flex items-center gap-1.5 text-xs font-medium tracking-wide text-muted-foreground">
+                <Gauge className="size-3.5 shrink-0 text-primary/70" aria-hidden />
+                상태
+              </h3>
+              {!hideActuatorAuxUi ? (
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  disabled={loadingHw}
+                  aria-busy={loadingHw}
+                  onClick={onRefreshHardware}
+                  className="shrink-0"
+                >
+                  <RefreshCw className="h-4 w-4" aria-hidden />
+                  <span className="ml-1.5">상태 새로고침</span>
+                </Button>
+              ) : null}
+            </div>
+            <div
+              className={cn(
+                "flex shrink-0 items-center justify-center text-xs font-medium tracking-wide text-muted-foreground",
+                compactHome
+                  ? "col-start-2 w-[7.5rem] justify-self-end"
+                  : "w-[7.25rem] justify-center",
+              )}
+            >
+              제어
+            </div>
+          </div>
 
-      <div className="mt-3 space-y-3">
-        {actuatorCardDisplays.map(({ row, disp }) => {
-          const showHwSpinner =
-            loadingHw &&
-            !hwByKey[row.key] &&
-            !commandEchoByKey[row.key] &&
-            !disp.state;
-          const commandTopic = normalizeActuatorCommandTopic(
-            row.key,
-            mqttForm.actuatorCommandTopics[row.key],
-          );
-          return (
-            <ActuatorControlCard
-              key={row.key}
-              row={row}
-              disp={disp}
-              showHwSpinner={showHwSpinner}
-              commandTopic={commandTopic}
-              publishState={publishState}
-            />
-          );
-        })}
-      </div>
-      </>
+          <div
+            className={
+              compactHome
+                ? "mt-3 flex min-h-0 flex-1 flex-col gap-4 sm:gap-5"
+                : "mt-3 space-y-3"
+            }
+          >
+            {actuatorCardDisplays.map(({ row, disp }) => {
+              const commandTopic = normalizeActuatorCommandTopic(
+                row.key,
+                mqttForm.actuatorCommandTopics[row.key],
+              );
+              return (
+                <ActuatorControlCard
+                  key={row.key}
+                  row={row}
+                  disp={disp}
+                  commandTopic={commandTopic}
+                  publishState={publishState}
+                  compact={compactHome}
+                  hideCommandLabel={hideActuatorAuxUi}
+                />
+              );
+            })}
+          </div>
+        </div>
       ) : null}
 
       {actionError ? (
@@ -778,7 +980,8 @@ export function ActuatorPanel({
       {showHistory ? (
       <div className="mt-4">
         <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-          <h3 className="text-muted-foreground text-xs font-medium uppercase tracking-wide">
+          <h3 className="flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+            <History className="size-3.5 shrink-0 text-primary/70" aria-hidden />
             최근 이력
           </h3>
           <Button

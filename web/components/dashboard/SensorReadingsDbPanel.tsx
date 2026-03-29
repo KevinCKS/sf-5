@@ -11,7 +11,16 @@ import {
   type Dispatch,
   type SetStateAction,
 } from "react";
-import { Loader2 } from "lucide-react";
+import {
+  ArrowDownWideNarrow,
+  CalendarRange,
+  Filter,
+  Loader2,
+  Radio,
+  RefreshCw,
+  Table2,
+  Trash2,
+} from "lucide-react";
 import { SensorTypeCheckbox } from "@/components/dashboard/SensorTypeCheckbox";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
@@ -27,7 +36,7 @@ import {
   SENSOR_TYPE_FILTERS,
   type SensorSortId,
 } from "@/lib/sensors/constants";
-import { KO_SHORT_DATETIME } from "@/lib/datetime/koShortDateTime";
+import { formatShortDateTime } from "@/lib/datetime/koShortDateTime";
 import {
   sameSensorReadingRows,
   type SensorReadingRow,
@@ -192,7 +201,10 @@ const SensorReadingsDbFilterBlock = memo(function SensorReadingsDbFilterBlock({
     <div className="mt-4 space-y-4">
       <div className="grid gap-3 sm:grid-cols-2">
         <div className="space-y-1.5">
-          <Label>시작 (일시)</Label>
+          <Label className="inline-flex items-center gap-1.5">
+            <CalendarRange className="size-3.5 text-muted-foreground" aria-hidden />
+            시작 (일시)
+          </Label>
           <div className="flex flex-wrap items-center gap-2">
             <input
               type="date"
@@ -250,7 +262,10 @@ const SensorReadingsDbFilterBlock = memo(function SensorReadingsDbFilterBlock({
           </div>
         </div>
         <div className="space-y-1.5">
-          <Label>종료 (일시)</Label>
+          <Label className="inline-flex items-center gap-1.5">
+            <CalendarRange className="size-3.5 text-muted-foreground" aria-hidden />
+            종료 (일시)
+          </Label>
           <div className="flex flex-wrap items-center gap-2">
             <input
               type="date"
@@ -310,7 +325,10 @@ const SensorReadingsDbFilterBlock = memo(function SensorReadingsDbFilterBlock({
       </div>
 
       <div className="space-y-2">
-        <Label>센서 타입</Label>
+        <Label className="inline-flex items-center gap-1.5">
+          <Filter className="size-3.5 text-muted-foreground" aria-hidden />
+          센서 타입
+        </Label>
         <div className="flex flex-wrap gap-3">
           {SENSOR_TYPE_FILTERS.map(({ type, label }) => (
             <SensorTypeCheckbox
@@ -326,7 +344,13 @@ const SensorReadingsDbFilterBlock = memo(function SensorReadingsDbFilterBlock({
 
       <div className="flex flex-wrap items-end gap-3">
         <div className="space-y-1">
-          <Label htmlFor="sensor-db-sort">정렬</Label>
+          <Label
+            htmlFor="sensor-db-sort"
+            className="inline-flex items-center gap-1.5"
+          >
+            <ArrowDownWideNarrow className="size-3.5 text-muted-foreground" aria-hidden />
+            정렬
+          </Label>
           <Select
             value={sort}
             onValueChange={(v) => v && setSort(v as SensorSortId)}
@@ -350,7 +374,14 @@ const SensorReadingsDbFilterBlock = memo(function SensorReadingsDbFilterBlock({
             disabled={clearingReadings}
             onClick={onClearReadingsClick}
           >
-            {clearingReadings ? "삭제 중…" : "측정 이력 전체 삭제"}
+            {clearingReadings ? (
+              "삭제 중…"
+            ) : (
+              <>
+                <Trash2 className="mr-1.5 size-4 shrink-0" aria-hidden />
+                측정 이력 전체 삭제
+              </>
+            )}
           </Button>
           <Button
             type="button"
@@ -358,6 +389,7 @@ const SensorReadingsDbFilterBlock = memo(function SensorReadingsDbFilterBlock({
             disabled={loading}
             onClick={refetchLive}
           >
+            <Radio className="mr-1.5 size-4 shrink-0" aria-hidden />
             실시간 조회
           </Button>
           <Button
@@ -366,6 +398,7 @@ const SensorReadingsDbFilterBlock = memo(function SensorReadingsDbFilterBlock({
             disabled={loading}
             onClick={refetchFiltered}
           >
+            <RefreshCw className="mr-1.5 size-4 shrink-0" aria-hidden />
             다시 조회
           </Button>
         </div>
@@ -540,7 +573,7 @@ export function SensorReadingsDbPanel() {
     return rows.map((r) => {
       let recordedLabel = labelByRecorded.get(r.recorded_at);
       if (recordedLabel === undefined) {
-        recordedLabel = KO_SHORT_DATETIME.format(new Date(r.recorded_at));
+        recordedLabel = formatShortDateTime(r.recorded_at);
         labelByRecorded.set(r.recorded_at, recordedLabel);
       }
       return {
@@ -606,7 +639,10 @@ export function SensorReadingsDbPanel() {
 
   return (
     <section className="dashboard-panel">
-      <h2 className="text-base font-semibold tracking-tight">Sensor — DB 조회</h2>
+      <h2 className="flex items-center gap-2 text-base font-semibold tracking-tight">
+        <Table2 className="size-5 shrink-0 text-primary" aria-hidden />
+        Sensor — DB 조회
+      </h2>
       <p className="text-muted-foreground mt-1 text-sm">
         시작·종료 일시와 센서 타입으로 필터한 뒤 「다시 조회」로 표를 갱신합니다. 「실시간 조회」는 필터와
         관계없이 최근 1시간·전체 타입만 조회합니다. 차트는 대시보드 탭입니다.

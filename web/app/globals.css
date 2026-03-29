@@ -83,40 +83,40 @@
   --sidebar-ring: oklch(0.708 0 0);
 }
 
-/* 다크 대시보드 — 네이비 베이스 + 시안·블루 액센트(참고 UI 느낌) */
+/* 다크 테마 — 참조: 메인 #12141d·카드 #1f2229·민트 #76d7b6 (과도한 암전 완화·면·카드 밝게) */
 .dark {
-  --background: oklch(0.13 0.038 262);
-  --foreground: oklch(0.97 0.012 262);
-  --card: oklch(0.17 0.045 258);
-  --card-foreground: oklch(0.97 0.012 262);
-  --popover: oklch(0.18 0.045 258);
-  --popover-foreground: oklch(0.97 0.012 262);
-  --primary: oklch(0.74 0.14 198);
-  --primary-foreground: oklch(0.12 0.04 262);
-  --secondary: oklch(0.24 0.04 258);
-  --secondary-foreground: oklch(0.95 0.02 262);
-  --muted: oklch(0.22 0.035 258);
-  --muted-foreground: oklch(0.62 0.03 262);
-  --accent: oklch(0.26 0.05 230);
-  --accent-foreground: oklch(0.97 0.012 262);
+  --background: oklch(0.168 0.019 265);
+  --foreground: oklch(0.97 0.01 265);
+  --card: oklch(0.238 0.023 265);
+  --card-foreground: oklch(0.97 0.01 265);
+  --popover: oklch(0.252 0.023 265);
+  --popover-foreground: oklch(0.97 0.01 265);
+  --primary: oklch(0.78 0.11 175);
+  --primary-foreground: oklch(0.16 0.022 265);
+  --secondary: oklch(0.29 0.024 265);
+  --secondary-foreground: oklch(0.96 0.01 265);
+  --muted: oklch(0.27 0.021 265);
+  --muted-foreground: oklch(0.72 0.022 265);
+  --accent: oklch(0.31 0.026 265);
+  --accent-foreground: oklch(0.97 0.01 265);
   --destructive: oklch(0.63 0.22 25);
-  --border: oklch(0.42 0.08 230 / 0.32);
-  --input: oklch(0.26 0.04 258);
-  --ring: oklch(0.65 0.12 198);
-  --chart-1: oklch(0.72 0.14 198);
-  --chart-2: oklch(0.68 0.12 230);
-  --chart-3: oklch(0.62 0.11 260);
-  --chart-4: oklch(0.78 0.1 175);
-  --chart-5: oklch(0.55 0.1 220);
+  --border: oklch(0.42 0.022 265 / 0.5);
+  --input: oklch(0.3 0.022 265);
+  --ring: oklch(0.76 0.1 175);
+  --chart-1: oklch(0.78 0.11 175);
+  --chart-2: oklch(0.68 0.09 200);
+  --chart-3: oklch(0.62 0.08 230);
+  --chart-4: oklch(0.72 0.1 160);
+  --chart-5: oklch(0.58 0.08 220);
   --radius: 1rem;
-  --sidebar: oklch(0.1 0.035 265);
-  --sidebar-foreground: oklch(0.92 0.02 262);
-  --sidebar-primary: oklch(0.74 0.14 198);
-  --sidebar-primary-foreground: oklch(0.12 0.04 262);
-  --sidebar-accent: oklch(0.18 0.04 258);
-  --sidebar-accent-foreground: oklch(0.97 0.012 262);
-  --sidebar-border: oklch(0.4 0.06 230 / 0.28);
-  --sidebar-ring: oklch(0.65 0.12 198);
+  --sidebar: oklch(0.198 0.021 265);
+  --sidebar-foreground: oklch(0.93 0.014 265);
+  --sidebar-primary: oklch(0.78 0.11 175);
+  --sidebar-primary-foreground: oklch(0.16 0.022 265);
+  --sidebar-accent: oklch(0.28 0.024 265);
+  --sidebar-accent-foreground: oklch(0.97 0.01 265);
+  --sidebar-border: oklch(0.38 0.022 265 / 0.45);
+  --sidebar-ring: oklch(0.76 0.1 175);
 }
 
 @layer base {
@@ -129,26 +129,71 @@
   html {
     @apply font-sans;
   }
+
+  /** 클릭·탭 등 상호작용 요소 — 호버 시 손가락 포인터 */
+  a[href]:not([aria-disabled="true"]) {
+    @apply cursor-pointer;
+  }
+  button:not(:disabled):not([aria-disabled="true"]) {
+    @apply cursor-pointer;
+  }
+  summary {
+    @apply cursor-pointer;
+  }
+  input[type="checkbox"]:not(:disabled),
+  input[type="radio"]:not(:disabled),
+  input[type="file"]:not(:disabled) {
+    @apply cursor-pointer;
+  }
+  [role="button"]:not([aria-disabled="true"]):not(:disabled),
+  [role="tab"]:not([aria-disabled="true"]),
+  [role="menuitem"]:not([aria-disabled="true"]),
+  [role="option"]:not([aria-disabled="true"]) {
+    @apply cursor-pointer;
+  }
+  button:disabled {
+    @apply cursor-not-allowed;
+  }
 }
 
 @layer components {
-  /** 대시보드 카드 — 둥근 모서리·얇은 시안 보더·은은한 글로우 */
+  /** 대시보드 카드 — 바깥 패널: 민트 보더를 조금 두껍게 해 내부 구역과 단계 구분 */
   .dashboard-panel {
-    @apply flex flex-col rounded-2xl border border-cyan-400/20 bg-card p-4 text-card-foreground;
+    @apply flex flex-col rounded-2xl border-2 border-teal-400/38 bg-card p-4 text-card-foreground;
     box-shadow:
-      0 0 0 1px oklch(0.55 0.1 200 / 0.07),
-      0 12px 48px -16px oklch(0.5 0.12 200 / 0.25);
+      0 0 0 1px oklch(0.62 0.09 195 / 0.18),
+      0 14px 40px -18px oklch(0.45 0.1 200 / 0.28);
     zoom: 1.3;
     /* 패널 내부 레이아웃 변경이 형제·상위 레이아웃 무효화에 덜 전파되도록 */
     contain: layout;
   }
 
+  /** 패널 내부 — 필터·조회 줄(센서) */
+  .dashboard-nest-toolbar {
+    @apply rounded-xl border-2 border-white/20 bg-gradient-to-b from-muted/45 to-muted/20 p-3 shadow-[inset_0_1px_0_0_rgba(255,255,255,0.08)];
+  }
+
+  /** 홈 2열 — 필터 바 높이 축소(체크·다시 조회 한 줄 유지) */
+  .dashboard-nest-toolbar.dashboard-nest-toolbar--compact {
+    @apply rounded-lg px-2 py-1.5;
+  }
+
+  /** 패널 내부 — 액추 원격제어 블록(바깥 굵은 테두리 없음, 배경·라운드만) */
+  .dashboard-nest-actuator {
+    @apply rounded-xl bg-gradient-to-b from-muted/40 to-card/45 p-2.5 shadow-[inset_0_1px_0_0_rgba(255,255,255,0.06)];
+  }
+
+  /** 액추 한 행 카드 — 위 블록 대비 한 단 더 안쪽 면 */
+  .dashboard-nest-actuator-row {
+    @apply rounded-lg border-2 border-white/18 bg-gradient-to-b from-card/50 to-muted/30 shadow-[inset_0_1px_0_0_rgba(255,255,255,0.05)];
+  }
+
   /** 패널과 동일 테두리·그림자(내부 패딩은 자식에서 지정) */
   .dashboard-surface {
-    @apply rounded-2xl border border-cyan-400/20 bg-card;
+    @apply rounded-2xl border-2 border-teal-400/38 bg-card;
     box-shadow:
-      0 0 0 1px oklch(0.55 0.1 200 / 0.07),
-      0 12px 48px -16px oklch(0.5 0.12 200 / 0.25);
+      0 0 0 1px oklch(0.62 0.09 195 / 0.12),
+      0 14px 40px -18px oklch(0.45 0.1 200 / 0.22);
     zoom: 1.3;
     /* MQTT 칩 등 — 패널과 동일하게 레이아웃 무효화 범위 축소 */
     contain: layout;
@@ -159,41 +204,98 @@
     zoom: 1.3;
   }
 
-  /** 대시보드 페이지 배경 — 상단에 푸른 그라데이션 광원 */
+  /** 대시보드 페이지 배경 — 상단 숲녹→민트 틴트(참조 그라데이션, 전체는 한 톤 밝게) */
   .dashboard-root {
     min-height: 100vh;
-    background: radial-gradient(
-      ellipse 130% 90% at 50% -28%,
-      oklch(0.28 0.09 235 / 0.42),
-      var(--background)
-    );
+    background:
+      radial-gradient(
+        ellipse 115% 75% at 50% -30%,
+        oklch(0.34 0.065 175 / 0.42),
+        transparent 55%
+      ),
+      radial-gradient(
+        ellipse 90% 50% at 80% 0%,
+        oklch(0.28 0.04 200 / 0.18),
+        transparent 50%
+      ),
+      linear-gradient(180deg, oklch(0.2 0.028 195) 0%, var(--background) 52%);
   }
 
   .dashboard-header {
-    @apply border-b border-cyan-500/15 bg-background/85 backdrop-blur-md supports-[backdrop-filter]:bg-background/65;
+    @apply border-b border-white/14 bg-[oklch(0.195_0.02_265)]/94 backdrop-blur-md supports-[backdrop-filter]:bg-[oklch(0.195_0.02_265)]/82;
   }
 
-  /** 로그인·회원가입 — 동일 톤 배경 */
+  /** 대시보드 홈 센서+액추 2열 — 높이 넘치면 패널만 스크롤(한 화면 유지) */
+  @media (min-width: 1024px) {
+    .dashboard-home-split .dashboard-panel {
+      max-height: min(100dvh - 5.75rem, 56rem);
+      overflow-y: auto;
+      overflow-x: hidden;
+    }
+  }
+
+  /** 로그인·회원가입 페이지 배경 — 대시보드와 톤 맞춤 */
   .auth-page {
-    min-height: 100vh;
-    background: radial-gradient(
-      ellipse 110% 70% at 50% -18%,
-      oklch(0.26 0.08 235 / 0.4),
-      var(--background)
-    );
+    flex: 1;
+    background:
+      radial-gradient(
+        ellipse 100% 55% at 50% -12%,
+        oklch(0.32 0.055 175 / 0.32),
+        transparent 50%
+      ),
+      linear-gradient(180deg, oklch(0.19 0.026 195) 0%, oklch(0.155 0.019 265) 100%);
   }
 
-  /** 기본 버튼 — 시안→블루 그라데이션·은은한 글로우 */
+  /** 인증 상단 바 */
+  .auth-top-nav {
+    background: oklch(0.17 0.02 265 / 0.96);
+  }
+
+  /** 기본 버튼 primary — 단색 민트 + 짙은 글자(참조 UI) */
   .dark [data-slot="button"].bg-primary {
-    background-image: linear-gradient(
-      135deg,
-      oklch(0.72 0.15 198),
-      oklch(0.52 0.13 255)
-    );
-    box-shadow: 0 0 24px -6px oklch(0.55 0.14 200 / 0.4);
+    background-image: none;
+    background-color: var(--primary);
+    box-shadow: 0 0 24px -6px oklch(0.72 0.11 175 / 0.5);
   }
 
   .dark [data-slot="button"].bg-primary:hover:not(:disabled) {
-    filter: brightness(1.06);
+    filter: brightness(1.07);
+  }
+
+  /** 센서 차트 최신점 삼각형 — 1초 주기로 계속 깜빡임 */
+  @keyframes sensor-live-head-blink {
+    0%,
+    100% {
+      opacity: 1;
+    }
+    50% {
+      opacity: 0.22;
+    }
+  }
+
+  .sensor-live-head-triangle {
+    animation: sensor-live-head-blink 1s ease-in-out infinite;
+    transform-box: fill-box;
+    transform-origin: center;
+  }
+
+  /** 센서 요약 카드 측정값 — 민트 네온 글로우 + 상단 하이라이트·하단 그림자로 입체감 */
+  .sensor-summary-value-neon {
+    color: oklch(0.93 0.055 175);
+    text-shadow:
+      0 0 12px oklch(0.72 0.14 175 / 0.88),
+      0 0 26px oklch(0.62 0.12 175 / 0.48),
+      0 1px 0 oklch(0.98 0.04 175 / 0.75),
+      0 4px 8px oklch(0.06 0.02 260 / 0.75);
+  }
+
+  /** 온도 값만 — 같은 연두·민트 계열에서 색상각·채도 살짝만 달리게 */
+  .sensor-summary-value-neon-temperature {
+    color: oklch(0.91 0.062 168);
+    text-shadow:
+      0 0 12px oklch(0.7 0.14 168 / 0.88),
+      0 0 26px oklch(0.6 0.12 168 / 0.48),
+      0 1px 0 oklch(0.97 0.045 168 / 0.75),
+      0 4px 8px oklch(0.06 0.02 260 / 0.75);
   }
 }

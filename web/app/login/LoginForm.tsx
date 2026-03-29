@@ -11,6 +11,7 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { toKoreanAuthMessage } from "@/lib/authErrors";
+import { Lock, LogIn, Mail } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -71,9 +72,12 @@ export function LoginForm() {
   );
 
   return (
-    <Card className="w-full max-w-md border-cyan-400/25 shadow-[0_12px_48px_-16px_rgba(34,211,238,0.2)] ring-cyan-400/20">
+    <Card className="w-full max-w-md border border-white/10 bg-card shadow-[0_16px_48px_-20px_rgba(0,0,0,0.5)] ring-1 ring-white/5">
       <CardHeader>
-        <CardTitle>로그인</CardTitle>
+        <CardTitle className="flex items-center gap-2">
+          <LogIn className="size-5 shrink-0 text-primary" aria-hidden />
+          로그인
+        </CardTitle>
         <CardDescription>이메일과 비밀번호를 입력해 주세요.</CardDescription>
       </CardHeader>
       <form onSubmit={onSubmit}>
@@ -84,7 +88,10 @@ export function LoginForm() {
             </p>
           ) : null}
           <div className="space-y-2">
-            <Label htmlFor="email">이메일</Label>
+            <Label htmlFor="email" className="inline-flex items-center gap-1.5">
+              <Mail className="size-3.5 text-muted-foreground" aria-hidden />
+              이메일
+            </Label>
             <Input
               id="email"
               name="email"
@@ -96,7 +103,10 @@ export function LoginForm() {
             />
           </div>
           <div className="space-y-2">
-            <Label htmlFor="password">비밀번호</Label>
+            <Label htmlFor="password" className="inline-flex items-center gap-1.5">
+              <Lock className="size-3.5 text-muted-foreground" aria-hidden />
+              비밀번호
+            </Label>
             <Input
               id="password"
               name="password"
@@ -110,7 +120,14 @@ export function LoginForm() {
         </CardContent>
         <CardFooter className="flex flex-col gap-4">
           <Button type="submit" className="w-full" disabled={loading}>
-            {loading ? "처리 중…" : "로그인"}
+            {loading ? (
+              "처리 중…"
+            ) : (
+              <>
+                <LogIn className="mr-2 size-4 shrink-0" aria-hidden />
+                로그인
+              </>
+            )}
           </Button>
           <p className="text-center text-sm text-muted-foreground">
             계정이 없으신가요?{" "}
@@ -118,7 +135,7 @@ export function LoginForm() {
               href="/signup"
               prefetch
               scroll={false}
-              className="underline underline-offset-4"
+              className="font-medium text-primary underline-offset-4 hover:underline"
             >
               회원가입
             </Link>

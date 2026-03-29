@@ -37,38 +37,29 @@ const ActuatorPanel = dynamic(
   { loading: () => <ActuatorBlockSkeleton />, ssr: false },
 );
 
-/** MQTT 접힘 UI 청크 분리 — 차트·액추와 동시 파싱 부담 완화 */
-function MqttAsideSkeleton() {
-  return (
-    <div className="dashboard-surface h-12 w-full rounded-lg md:max-w-xl xl:max-w-none" aria-hidden>
-      <Skeleton className="h-full w-full rounded-lg opacity-60" />
-    </div>
-  );
-}
-
-const DashboardMqttCollapsible = dynamic(
-  () =>
-    import("@/components/dashboard/DashboardMqttCollapsible").then(
-      (m) => m.DashboardMqttCollapsible,
-    ),
-  { loading: () => <MqttAsideSkeleton />, ssr: false },
-);
-
-/** 대시보드 탭 — 센서·액추는 넓게, MQTT는 xl에서 화면 오른쪽 고정(카드 zoom 1.3 반영해 열 너비 ~15rem) */
+/** 대시보드 탭 — lg 이상에서 센서·액추 2열(참조 UI), compact로 한 화면 배치 */
 export function DashboardHomeContent() {
   return (
-    <div className="mx-auto w-full max-w-6xl xl:pr-[15rem]">
-      <div className="space-y-6">
-        <SensorDashboard hideMqttSettings hideClearReadings />
-        <ActuatorPanel showMqttDetails={false} showHistory={false} />
+    <div className="dashboard-home-split mx-auto w-full max-w-7xl px-0 sm:px-1 lg:pl-0 lg:pr-5">
+      {/* lg: 좌·우 패딩 비대칭·열 간격 확대 / 센서 1.3·액추 0.7fr — 시각적으로 좌·우 살짝 밀기 */}
+      {/* lg: 행 높이=max(센서,액추) — 양열 stretch + 패널 h-full 로 카드 박스 높이 동일 */}
+      <div className="grid grid-cols-1 gap-5 lg:grid-cols-[1.3fr_0.7fr] lg:items-stretch lg:gap-x-10 lg:gap-y-6">
+        {/* lg: 양열 self-stretch — 행 높이=max(센서,액추) 를 두 패널이 동일하게 채움 */}
+        <div className="flex h-full min-h-0 min-w-0 flex-col self-stretch lg:w-full lg:-translate-x-1">
+          <SensorDashboard
+            hideMqttSettings
+            hideClearReadings
+            compactHomeLayout
+          />
+        </div>
+        <div className="flex h-full min-h-0 min-w-0 flex-col self-stretch lg:translate-x-2">
+          <ActuatorPanel
+            showMqttDetails={false}
+            showHistory={false}
+            compactHome
+          />
+        </div>
       </div>
-      {/* xl: 뷰포트 우측 고정(플로우 밖) → 좌측 카드가 가로 전체 사용 */}
-      <aside
-        className="relative z-30 mt-6 w-full xl:fixed xl:top-28 xl:right-0 xl:mt-0 xl:w-[15rem] xl:min-w-[15rem] xl:px-0"
-        aria-label="MQTT 설정"
-      >
-        <DashboardMqttCollapsible />
-      </aside>
     </div>
   );
 }

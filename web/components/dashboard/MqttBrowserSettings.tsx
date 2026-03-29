@@ -10,24 +10,32 @@ import {
 import { ACTUATOR_ROWS } from "@/lib/mqtt/actuatorTopics";
 import { MQTT_TOPICS } from "@/lib/mqtt/allowlist";
 import type { BrowserMqttSettings } from "@/lib/mqtt/browserMqttSettings";
+import { Braces, Radio, Save, Send, Server } from "lucide-react";
+import { cn } from "@/lib/utils";
 
-/** 우측 패널·센서 카드 — 브로커 / 센서 토픽 / 액추 토픽을 접었다 펼칠 수 있게 구분 */
-export function MqttBrowserSettings() {
+/** 섹션별 입체 카드 — 위쪽 하이라이트 + 바닥 그림자로 단계 구분 */
+const mqttSectionCard =
+  "group space-y-2 rounded-xl border border-white/[0.12] bg-gradient-to-b from-card via-card to-muted/35 px-3 py-3 text-xs shadow-[0_1px_0_0_rgba(255,255,255,0.07)_inset,0_6px_20px_-8px_rgba(0,0,0,0.55),0_2px_8px_-4px_rgba(0,0,0,0.35)] ring-1 ring-black/25";
+
+/** 저장/환경변수 줄 — 동일 톤의 얕은 받침대 */
+const mqttActionsCard =
+  "flex flex-wrap justify-center gap-4 rounded-xl border border-white/[0.1] bg-gradient-to-b from-muted/50 to-muted/25 px-3 py-3 shadow-[0_1px_0_0_rgba(255,255,255,0.05)_inset,0_4px_16px_-6px_rgba(0,0,0,0.45)] ring-1 ring-black/20";
+
+/** 폼 본문만 — 다이얼로그에서는 푸터와 분리해 스크롤 영역에만 넣기 위함 */
+export function MqttBrowserSettingsBody() {
   const { form, setForm } = useMqttForm();
-  const { handleSaveSettings, handleClearSettings } = useMqttConnectionCore();
 
   return (
-    <div className="bg-muted/20 space-y-3 rounded-md border border-dashed px-3 py-2 text-sm">
-      <div className="font-medium">MQTT 연결 → 로그인 계정 DB 저장</div>
-      <p className="text-muted-foreground text-xs leading-relaxed">
-        연결 시 센서 토픽과 아래 §6.3 상태 토픽을 함께 구독합니다. 센서 수신 시{" "}
-        <code className="rounded bg-muted px-0.5">timestamp</code> 는 브라우저 시각(ISO UTC)으로
-        넣습니다. 값은 이 브라우저 <strong>localStorage</strong>에만 저장됩니다.
-      </p>
-
-      <details className="group space-y-2 rounded-md border bg-muted/30 px-2 py-2 text-xs">
-        <summary className="cursor-pointer select-none font-medium text-foreground">
-          1. MQTT Broker
+    <div className="space-y-4 text-sm">
+      <details className={cn(mqttSectionCard)}>
+        <summary className="cursor-pointer list-none font-semibold text-foreground [&::-webkit-details-marker]:hidden">
+          <span className="inline-flex items-center gap-2">
+            <span className="inline-flex size-6 shrink-0 items-center justify-center rounded-lg bg-primary/15 text-[10px] font-bold text-primary ring-1 ring-primary/30">
+              1
+            </span>
+            <Server className="size-3.5 shrink-0 text-primary/85" aria-hidden />
+            MQTT Broker
+          </span>
         </summary>
         <div className="mt-2 grid gap-2 sm:grid-cols-2">
           <div className="space-y-1 sm:col-span-2">
@@ -73,9 +81,15 @@ export function MqttBrowserSettings() {
         </div>
       </details>
 
-      <details className="group space-y-2 rounded-md border bg-muted/30 px-2 py-2 text-xs">
-        <summary className="cursor-pointer select-none font-medium text-foreground">
-          2. Sensor Subscribe Topic
+      <details className={cn(mqttSectionCard)}>
+        <summary className="cursor-pointer list-none font-semibold text-foreground [&::-webkit-details-marker]:hidden">
+          <span className="inline-flex items-center gap-2">
+            <span className="inline-flex size-6 shrink-0 items-center justify-center rounded-lg bg-primary/15 text-[10px] font-bold text-primary ring-1 ring-primary/30">
+              2
+            </span>
+            <Radio className="size-3.5 shrink-0 text-primary/85" aria-hidden />
+            Sensor Subscribe Topic
+          </span>
         </summary>
         <div className="mt-2 space-y-1">
           <Label htmlFor="mqtt-topic">센서 구독 토픽</Label>
@@ -91,9 +105,15 @@ export function MqttBrowserSettings() {
         </div>
       </details>
 
-      <details className="group space-y-2 rounded-md border bg-muted/30 px-2 py-2 text-xs">
-        <summary className="cursor-pointer select-none font-medium text-foreground">
-          3. Actuator Publish Topic
+      <details className={cn(mqttSectionCard)}>
+        <summary className="cursor-pointer list-none font-semibold text-foreground [&::-webkit-details-marker]:hidden">
+          <span className="inline-flex items-center gap-2">
+            <span className="inline-flex size-6 shrink-0 items-center justify-center rounded-lg bg-primary/15 text-[10px] font-bold text-primary ring-1 ring-primary/30">
+              3
+            </span>
+            <Send className="size-3.5 shrink-0 text-primary/85" aria-hidden />
+            Actuator Publish Topic
+          </span>
         </summary>
         <div className="mt-2 space-y-4">
           <div>
@@ -170,15 +190,34 @@ export function MqttBrowserSettings() {
           </div>
         </div>
       </details>
+    </div>
+  );
+}
 
-      <div className="flex flex-wrap gap-2 pt-1">
-        <Button type="button" size="sm" variant="secondary" onClick={handleSaveSettings}>
-          이 브라우저에 저장
-        </Button>
-        <Button type="button" size="sm" variant="outline" onClick={handleClearSettings}>
-          저장 지우기(env만)
-        </Button>
-      </div>
+/** 저장·환경변수 — 다이얼로그 하단 고정 푸터에 두면 긴 폼을 펼쳐도 항상 보임 */
+export function MqttBrowserSettingsActions() {
+  const { handleSaveSettings, handleClearSettings } = useMqttConnectionCore();
+
+  return (
+    <div className={cn(mqttActionsCard, "w-full pt-1")}>
+      <Button type="button" size="sm" variant="secondary" onClick={handleSaveSettings}>
+        <Save className="mr-1.5 size-3.5 shrink-0" aria-hidden />
+        저장
+      </Button>
+      <Button type="button" size="sm" variant="outline" onClick={handleClearSettings}>
+        <Braces className="mr-1.5 size-3.5 shrink-0" aria-hidden />
+        환경변수
+      </Button>
+    </div>
+  );
+}
+
+/** 센서 탭 등 — 본문+버튼 한 덩어리 */
+export function MqttBrowserSettings() {
+  return (
+    <div className="space-y-4 text-sm">
+      <MqttBrowserSettingsBody />
+      <MqttBrowserSettingsActions />
     </div>
   );
 }

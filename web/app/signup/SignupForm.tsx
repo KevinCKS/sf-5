@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { toKoreanAuthMessage } from "@/lib/authErrors";
+import { Lock, Mail, UserPlus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -68,7 +69,7 @@ export function SignupForm() {
   );
 
   return (
-    <Card className="w-full max-w-md border-cyan-400/25 shadow-[0_12px_48px_-16px_rgba(34,211,238,0.2)] ring-cyan-400/20">
+    <Card className="w-full max-w-md border border-white/10 bg-card shadow-[0_16px_48px_-20px_rgba(0,0,0,0.5)] ring-1 ring-white/5">
       <CardHeader>
         <CardTitle>회원가입</CardTitle>
         <CardDescription>이메일과 비밀번호로 계정을 만듭니다.</CardDescription>
@@ -86,7 +87,13 @@ export function SignupForm() {
             </p>
           ) : null}
           <div className="space-y-2">
-            <Label htmlFor="signup-email">이메일</Label>
+            <Label
+              htmlFor="signup-email"
+              className="inline-flex items-center gap-1.5"
+            >
+              <Mail className="size-3.5 text-muted-foreground" aria-hidden />
+              이메일
+            </Label>
             <Input
               id="signup-email"
               name="email"
@@ -98,7 +105,13 @@ export function SignupForm() {
             />
           </div>
           <div className="space-y-2">
-            <Label htmlFor="signup-password">비밀번호</Label>
+            <Label
+              htmlFor="signup-password"
+              className="inline-flex items-center gap-1.5"
+            >
+              <Lock className="size-3.5 text-muted-foreground" aria-hidden />
+              비밀번호
+            </Label>
             <Input
               id="signup-password"
               name="password"
@@ -114,7 +127,14 @@ export function SignupForm() {
         </CardContent>
         <CardFooter className="flex flex-col gap-4">
           <Button type="submit" className="w-full" disabled={loading}>
-            {loading ? "처리 중…" : "가입하기"}
+            {loading ? (
+              "처리 중…"
+            ) : (
+              <>
+                <UserPlus className="mr-2 size-4 shrink-0" aria-hidden />
+                가입하기
+              </>
+            )}
           </Button>
           <p className="text-center text-sm text-muted-foreground">
             이미 계정이 있으신가요?{" "}
@@ -122,7 +142,7 @@ export function SignupForm() {
               href="/login"
               prefetch
               scroll={false}
-              className="underline underline-offset-4"
+              className="font-medium text-primary underline-offset-4 hover:underline"
             >
               로그인
             </Link>

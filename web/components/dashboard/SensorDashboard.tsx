@@ -11,9 +11,8 @@ import {
   memo,
 } from "react";
 import dynamic from "next/dynamic";
-import { Loader2 } from "lucide-react";
+import { Loader2, RefreshCw, Thermometer, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Label } from "@/components/ui/label";
 import { SENSOR_TYPE_FILTERS } from "@/lib/sensors/constants";
 import {
   latestAndUnitByTypeFromRows,
@@ -29,6 +28,7 @@ import type { SensorChartPoint } from "@/components/dashboard/SensorLiveChartsBl
 import { dashboardFetchInit } from "@/lib/http/dashboardFetchInit";
 import { parseResponseBodyJson } from "@/lib/http/parseResponseBodyJson";
 import { requestClearAllSensorReadings } from "@/lib/http/sensorReadingsClient";
+import { cn } from "@/lib/utils";
 
 /** Recharts 청크 지연 로드 — 메인 번들에서 차트 라이브러리 제외 */
 const SensorLiveChartsBlock = dynamic(
@@ -54,13 +54,27 @@ const SensorLiveChartsBlock = dynamic(
 const LIVE_WINDOW_MS = 60 * 60 * 1000;
 const LIVE_POLL_MS = 30 * 1000;
 
-/** Recharts용 시계열 피벗 — 타입·시간 인덱스·라벨 포맷 비용 완화 */
-const CHART_TIME_LABEL_FMT = new Intl.DateTimeFormat("ko-KR", {
-  month: "short",
-  day: "numeric",
-  hour: "2-digit",
-  minute: "2-digit",
-});
+/** API 응답에 넓은 구간이 섞여도 차트·요약은 [지금−1h, 지금]만 사용 */
+function filterRowsToLiveWindow(
+  rows: SensorReadingRow[],
+  windowMs: number,
+): SensorReadingRow[] {
+  const now = Date.now();
+  const start = now - windowMs;
+  return rows.filter((r) => {
+    const t = new Date(r.recorded_at).getTime();
+    return !Number.isNaN(t) && t >= start && t <= now;
+  });
+}
+
+/** 차트 X축·툴팁용 시각 — 짧게 24시간제 시:분만 */
+function formatChartTimeLabelForAxis(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "—";
+  const hh = String(d.getHours()).padStart(2, "0");
+  const mm = String(d.getMinutes()).padStart(2, "0");
+  return `${hh}:${mm}`;
+}
 
 /** Recharts 포인트·Intl 포맷 횟수 상한 — 초당 다건 적재 시에도 메인 스레드 부담 완화 */
 const MAX_CHART_TIME_POINTS = 400;
@@ -112,7 +126,7 @@ function pivotChartRows(
     const inner = valueByTime.get(t);
     const point: Record<string, string | number | null> = {
       time: t,
-      timeLabel: CHART_TIME_LABEL_FMT.format(new Date(t)),
+      timeLabel: formatChartTimeLabelForAxis(t),
     };
     for (const ty of activeTypes) {
       const v = inner?.get(ty);
@@ -127,6 +141,8 @@ type SensorDashboardProps = {
   hideMqttSettings?: boolean;
   /** true: 측정 이력 전체 삭제 버튼 숨김(DB 탭 전용 테이블로 이동) */
   hideClearReadings?: boolean;
+  /** true: 대시보드 홈 2열 배치용 — 필터·차트 높이 축소 */
+  compactHomeLayout?: boolean;
 };
 
 type SensorDashboardFilterBlockProps = {
@@ -137,6 +153,7 @@ type SensorDashboardFilterBlockProps = {
   notice: string | null;
   selectedTypes: Set<string>;
   toggleType: (type: string) => void;
+  compact?: boolean;
 };
 
 /** 타입 필터·조회 버튼 — rows/MQTT 힌트만 바뀔 때 체크박스·버튼 DOM 재생성 생략(Context 없음) */
@@ -148,17 +165,29 @@ const SensorDashboardFilterBlock = memo(function SensorDashboardFilterBlock({
   notice,
   selectedTypes,
   toggleType,
+  compact = false,
 }: SensorDashboardFilterBlockProps) {
   return (
-    <div className="mt-4 space-y-4">
-      <p className="text-muted-foreground text-xs leading-relaxed">
-        최근 1시간 구간 · 약 {LIVE_POLL_MS / 1000}초마다 자동 조회 · MQTT로
-        저장되면 즉시 반영
-      </p>
-
-      <div className="space-y-2">
-        <Label>센서 타입</Label>
-        <div className="flex flex-wrap gap-3">
+    <div
+      className={cn(
+        compact ? "mt-2 space-y-2" : "mt-4 space-y-4",
+        "dashboard-nest-toolbar",
+        compact && "dashboard-nest-toolbar--compact",
+      )}
+    >
+      {/* 체크박스·다시 조회 — compact 시 한 줄·소형 */}
+      <div
+        className={cn(
+          "flex min-w-0 items-center",
+          compact ? "gap-2" : "gap-3",
+        )}
+      >
+        <div
+          className={cn(
+            "flex min-w-0 flex-1 flex-wrap content-center items-center",
+            compact ? "gap-x-2 gap-y-1" : "gap-x-3 gap-y-2",
+          )}
+        >
           {SENSOR_TYPE_FILTERS.map(({ type, label }) => (
             <SensorTypeCheckbox
               key={type}
@@ -166,26 +195,45 @@ const SensorDashboardFilterBlock = memo(function SensorDashboardFilterBlock({
               label={label}
               checked={selectedTypes.has(type)}
               onToggle={toggleType}
+              compact={compact}
             />
           ))}
         </div>
+        <Button
+          type="button"
+          variant="secondary"
+          onClick={refetchData}
+          className={cn(
+            "shrink-0 font-normal",
+            compact
+              ? "h-6 min-h-0 gap-0.5 px-2 text-[11px] [&_svg]:size-3"
+              : "h-7 gap-1 px-2.5 text-sm [&_svg]:size-3.5",
+          )}
+        >
+          <RefreshCw className="shrink-0" aria-hidden />
+          다시 조회
+        </Button>
       </div>
 
-      <div className="flex flex-wrap items-center justify-end gap-2">
-        {!hideClearReadings ? (
+      {!hideClearReadings ? (
+        <div className="flex flex-wrap items-center justify-end gap-2">
           <Button
             type="button"
             variant="destructive"
             disabled={clearingReadings}
             onClick={onClearReadingsClick}
           >
-            {clearingReadings ? "삭제 중…" : "측정 이력 전체 삭제"}
+            {clearingReadings ? (
+              "삭제 중…"
+            ) : (
+              <>
+                <Trash2 className="mr-1.5 size-4 shrink-0" aria-hidden />
+                측정 이력 전체 삭제
+              </>
+            )}
           </Button>
-        ) : null}
-        <Button type="button" variant="secondary" onClick={refetchData}>
-          다시 조회
-        </Button>
-      </div>
+        </div>
+      ) : null}
       {notice ? (
         <p
           className="text-sm text-emerald-700 dark:text-emerald-400"
@@ -202,6 +250,7 @@ const SensorDashboardFilterBlock = memo(function SensorDashboardFilterBlock({
 export function SensorDashboard({
   hideMqttSettings = false,
   hideClearReadings = false,
+  compactHomeLayout = false,
 }: SensorDashboardProps) {
   const [selectedTypes, setSelectedTypes] = useState<Set<string>>(
     () => new Set(SENSOR_TYPE_FILTERS.map((x) => x.type)),
@@ -343,10 +392,16 @@ export function SensorDashboard({
     };
   }, [fetchData]);
 
+  /** 화면에 쓰는 행만 최근 1시간으로 제한(API와 동일 창을 클라이언트에서도 보장) */
+  const rowsInLiveWindow = useMemo(
+    () => filterRowsToLiveWindow(rows, LIVE_WINDOW_MS),
+    [rows],
+  );
+
   /** 요약·단위·typesPresent — rows 단일 순회(latestAndUnitByTypeFromRows) */
   const { latest, unitByType, typesPresent } = useMemo(
-    () => latestAndUnitByTypeFromRows(rows),
-    [rows],
+    () => latestAndUnitByTypeFromRows(rowsInLiveWindow),
+    [rowsInLiveWindow],
   );
 
   /** 차트 시리즈 — 선택 타입 중 실제 데이터가 있는 것만(typesPresent 재사용으로 rows 재순회 생략) */
@@ -356,8 +411,8 @@ export function SensorDashboard({
   );
 
   const chartData = useMemo(
-    () => pivotChartRows(rows, typesList),
-    [rows, typesList],
+    () => pivotChartRows(rowsInLiveWindow, typesList),
+    [rowsInLiveWindow, typesList],
   );
   /** 폴링 등 빠른 연속 갱신 시 차트만 낮은 우선순위로 반영 — 입력·요약은 즉시 */
   const deferredChartData = useDeferredValue(chartData);
@@ -412,15 +467,38 @@ export function SensorDashboard({
   }, [handleClearAllReadings]);
 
   return (
-    <section className="dashboard-panel">
-      <h2 className="text-base font-semibold tracking-tight">Sensor</h2>
-      <p className="mt-1 text-sm text-muted-foreground">
-        온도·습도 등 센서 요약과 차트입니다. 최근 1시간 구간을 자동으로 갱신합니다.
-        기간을 지정해 조회하려면 DB 탭을 이용하세요.
-      </p>
+    <section
+      className={cn(
+        "dashboard-panel",
+        /** 홈 2열: 형제 액추 패널과 동일 행 높이를 채우고 내부 스크롤은 카드에 위임 */
+        compactHomeLayout && "h-full min-h-0",
+      )}
+    >
+      {compactHomeLayout ? (
+        <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0">
+          <h2 className="flex shrink-0 items-center gap-1.5 text-sm font-semibold tracking-tight">
+            <Thermometer className="size-4 shrink-0 text-primary" aria-hidden />
+            Sensor
+          </h2>
+          <p className="text-muted-foreground min-w-0 flex-1 text-[10px] leading-tight">
+            최근 1시간만 · 약 {LIVE_POLL_MS / 1000}초 갱신
+          </p>
+        </div>
+      ) : (
+        <>
+          <h2 className="flex items-center gap-2 text-base font-semibold tracking-tight">
+            <Thermometer className="size-5 shrink-0 text-primary" aria-hidden />
+            Sensor
+          </h2>
+          <p className="text-muted-foreground mt-1.5 text-xs leading-relaxed">
+            차트·요약은 최근 1시간 구간만 표시합니다. (약 {LIVE_POLL_MS / 1000}초마다
+            갱신)
+          </p>
+        </>
+      )}
 
       {!hideMqttSettings ? (
-        <div className="mt-3">
+        <div className={compactHomeLayout ? "mt-2" : "mt-3"}>
           <MqttBrowserSettings />
         </div>
       ) : null}
@@ -433,6 +511,7 @@ export function SensorDashboard({
         notice={notice}
         selectedTypes={selectedTypes}
         toggleType={toggleType}
+        compact={compactHomeLayout}
       />
 
       {loading ? (
@@ -451,21 +530,22 @@ export function SensorDashboard({
         </p>
       ) : null}
 
-      {!loading && !error && rows.length === 0 ? (
+      {!loading && !error && rowsInLiveWindow.length === 0 ? (
         <div
-          className="mt-4 flex min-h-[120px] flex-col items-center justify-center rounded-xl border border-dashed border-cyan-500/20 bg-muted/25 px-4 py-8 text-center text-sm text-muted-foreground"
+          className="mt-4 flex min-h-[120px] flex-col items-center justify-center rounded-xl border border-dashed border-primary/25 bg-muted/25 px-4 py-8 text-center text-sm text-muted-foreground"
           role="status"
         >
           최근 1시간·선택 타입에 맞는 데이터가 없습니다.
         </div>
       ) : null}
 
-      {!loading && !error && rows.length > 0 ? (
+      {!loading && !error && rowsInLiveWindow.length > 0 ? (
         <SensorLiveChartsBlock
           latest={latest}
           typesList={typesList}
           chartData={deferredChartData}
           unitByType={unitByType}
+          compact={compactHomeLayout}
         />
       ) : null}
     </section>

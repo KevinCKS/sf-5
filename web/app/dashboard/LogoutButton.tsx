@@ -3,6 +3,7 @@
 import { memo, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
+import { LogOut } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useIdleStaggeredRouterPrefetch } from "@/lib/navigation/useIdleStaggeredRouterPrefetch";
 
@@ -22,7 +23,13 @@ export const LogoutButton = memo(function LogoutButton() {
   }, [router]);
 
   return (
-    <Button type="button" variant="outline" onClick={handleLogout}>
+    <Button
+      type="button"
+      variant="outline"
+      className="rounded-full border-white/25 bg-transparent text-foreground hover:bg-white/10"
+      onClick={handleLogout}
+    >
+      <LogOut className="mr-2 size-4 shrink-0" aria-hidden />
       로그아웃
     </Button>
   );

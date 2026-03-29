@@ -3,12 +3,13 @@
 import { memo } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { Bell, Database, LayoutDashboard } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const ITEMS = [
-  { href: "/dashboard", label: "대시보드" },
-  { href: "/dashboard/db", label: "DB" },
-  { href: "/dashboard/alert", label: "Alert" },
+  { href: "/dashboard", label: "대시보드", Icon: LayoutDashboard },
+  { href: "/dashboard/db", label: "DB", Icon: Database },
+  { href: "/dashboard/alert", label: "Alert", Icon: Bell },
 ] as const;
 
 /** 왼쪽 사이드 — 대시보드 / DB / Alert 이동 */
@@ -17,7 +18,7 @@ function DashboardNavInner() {
 
   return (
     <nav className="flex flex-col gap-1" aria-label="주 메뉴">
-      {ITEMS.map(({ href, label }) => {
+      {ITEMS.map(({ href, label, Icon }) => {
         const active =
           href === "/dashboard"
             ? pathname === "/dashboard"
@@ -30,12 +31,17 @@ function DashboardNavInner() {
             scroll={false}
             // 탭 전환 시 맨 위로 스크롤 복원 생략 — 전환·레이아웃 안정화
             className={cn(
-              "rounded-full px-3 py-2 text-sm font-medium transition-all duration-200",
+              // 기본 text-sm(0.875rem) 대비 글자 1.6배 → 1.4rem
+              "inline-flex items-center gap-2.5 rounded-full px-3 py-2.5 text-[1.4rem] font-medium transition-all duration-200",
               active
-                ? "bg-gradient-to-r from-cyan-500/90 to-blue-600/90 text-white shadow-[0_0_20px_-4px_rgba(34,211,238,0.45)]"
+                ? "bg-primary/20 text-primary shadow-[0_0_18px_-6px_oklch(0.75_0.09_175_/_0.55)] ring-1 ring-primary/35"
                 : "text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-foreground",
             )}
           >
+            <Icon
+              className="size-[1.6rem] shrink-0 opacity-90"
+              aria-hidden
+            />
             {label}
           </Link>
         );
