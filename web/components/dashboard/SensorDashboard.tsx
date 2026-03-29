@@ -13,7 +13,10 @@ import {
 import dynamic from "next/dynamic";
 import { Loader2, RefreshCw, Thermometer, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { SENSOR_TYPE_FILTERS } from "@/lib/sensors/constants";
+import {
+  SENSOR_DASHBOARD_LIVE_LIMIT,
+  SENSOR_TYPE_FILTERS,
+} from "@/lib/sensors/constants";
 import {
   latestAndUnitByTypeFromRows,
   sameSensorReadingRows,
@@ -50,22 +53,8 @@ const SensorLiveChartsBlock = dynamic(
   },
 );
 
-/** 실시간(최근 1시간) 조회 구간·자동 폴링 간격 */
-const LIVE_WINDOW_MS = 60 * 60 * 1000;
+/** 실시간 조회: 최근 N개(API limit)·자동 폴링 간격 */
 const LIVE_POLL_MS = 30 * 1000;
-
-/** API 응답에 넓은 구간이 섞여도 차트·요약은 [지금−1h, 지금]만 사용 */
-function filterRowsToLiveWindow(
-  rows: SensorReadingRow[],
-  windowMs: number,
-): SensorReadingRow[] {
-  const now = Date.now();
-  const start = now - windowMs;
-  return rows.filter((r) => {
-    const t = new Date(r.recorded_at).getTime();
-    return !Number.isNaN(t) && t >= start && t <= now;
-  });
-}
 
 /** 차트 X축·툴팁용 시각 — 짧게 24시간제 시:분만 */
 function formatChartTimeLabelForAxis(iso: string): string {
@@ -246,7 +235,7 @@ const SensorDashboardFilterBlock = memo(function SensorDashboardFilterBlock({
   );
 });
 
-/** Sensor 영역 — 실시간(최근 1시간)·타입 필터·요약·라인 차트 (기간 지정은 DB 탭) */
+/** Sensor 영역 — 실시간(최근 N개)·타입 필터·요약·라인 차트 (기간 지정은 DB 탭) */
 export function SensorDashboard({
   hideMqttSettings = false,
   hideClearReadings = false,
@@ -298,10 +287,7 @@ export function SensorDashboard({
       setNotice(null);
     }
     const params = new URLSearchParams();
-    const fromIso = new Date(Date.now() - LIVE_WINDOW_MS).toISOString();
-    const toIso = new Date().toISOString();
-    params.set("from", fromIso);
-    params.set("to", toIso);
+    params.set("limit", String(SENSOR_DASHBOARD_LIVE_LIMIT));
     if (selectedTypes.size < SENSOR_TYPE_FILTERS.length) {
       params.set("types", [...selectedTypes].join(","));
     }
@@ -392,16 +378,10 @@ export function SensorDashboard({
     };
   }, [fetchData]);
 
-  /** 화면에 쓰는 행만 최근 1시간으로 제한(API와 동일 창을 클라이언트에서도 보장) */
-  const rowsInLiveWindow = useMemo(
-    () => filterRowsToLiveWindow(rows, LIVE_WINDOW_MS),
-    [rows],
-  );
-
   /** 요약·단위·typesPresent — rows 단일 순회(latestAndUnitByTypeFromRows) */
   const { latest, unitByType, typesPresent } = useMemo(
-    () => latestAndUnitByTypeFromRows(rowsInLiveWindow),
-    [rowsInLiveWindow],
+    () => latestAndUnitByTypeFromRows(rows),
+    [rows],
   );
 
   /** 차트 시리즈 — 선택 타입 중 실제 데이터가 있는 것만(typesPresent 재사용으로 rows 재순회 생략) */
@@ -411,8 +391,8 @@ export function SensorDashboard({
   );
 
   const chartData = useMemo(
-    () => pivotChartRows(rowsInLiveWindow, typesList),
-    [rowsInLiveWindow, typesList],
+    () => pivotChartRows(rows, typesList),
+    [rows, typesList],
   );
   /** 폴링 등 빠른 연속 갱신 시 차트만 낮은 우선순위로 반영 — 입력·요약은 즉시 */
   const deferredChartData = useDeferredValue(chartData);
@@ -481,7 +461,7 @@ export function SensorDashboard({
             Sensor
           </h2>
           <p className="text-muted-foreground min-w-0 flex-1 text-[10px] leading-tight">
-            최근 1시간만 · 약 {LIVE_POLL_MS / 1000}초 갱신
+            최근 {SENSOR_DASHBOARD_LIVE_LIMIT}개 · 약 {LIVE_POLL_MS / 1000}초 갱신
           </p>
         </div>
       ) : (
@@ -491,8 +471,8 @@ export function SensorDashboard({
             Sensor
           </h2>
           <p className="text-muted-foreground mt-1.5 text-xs leading-relaxed">
-            차트·요약은 최근 1시간 구간만 표시합니다. (약 {LIVE_POLL_MS / 1000}초마다
-            갱신)
+            차트·요약은 최근 {SENSOR_DASHBOARD_LIVE_LIMIT}개만 표시합니다. (약{" "}
+            {LIVE_POLL_MS / 1000}초마다 갱신)
           </p>
         </>
       )}
@@ -530,16 +510,16 @@ export function SensorDashboard({
         </p>
       ) : null}
 
-      {!loading && !error && rowsInLiveWindow.length === 0 ? (
+      {!loading && !error && rows.length === 0 ? (
         <div
           className="mt-4 flex min-h-[120px] flex-col items-center justify-center rounded-xl border border-dashed border-primary/25 bg-muted/25 px-4 py-8 text-center text-sm text-muted-foreground"
           role="status"
         >
-          최근 1시간·선택 타입에 맞는 데이터가 없습니다.
+          최근 {SENSOR_DASHBOARD_LIVE_LIMIT}개·선택 타입에 맞는 데이터가 없습니다.
         </div>
       ) : null}
 
-      {!loading && !error && rowsInLiveWindow.length > 0 ? (
+      {!loading && !error && rows.length > 0 ? (
         <SensorLiveChartsBlock
           latest={latest}
           typesList={typesList}

@@ -75,3 +75,6 @@ export const SENSOR_SORT_OPTIONS = [
 ] as const;
 
 export type SensorSortId = (typeof SENSOR_SORT_OPTIONS)[number]["id"];
+
+/** 대시보드 Sensor 카드·「실시간 조회」— GET /api/sensor-readings?limit= (최신순 N행) */
+export const SENSOR_DASHBOARD_LIVE_LIMIT = 50;

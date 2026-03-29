@@ -32,6 +32,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import {
+  SENSOR_DASHBOARD_LIVE_LIMIT,
   SENSOR_SORT_OPTIONS,
   SENSOR_TYPE_FILTERS,
   type SensorSortId,
@@ -112,9 +113,6 @@ const dateInputClass =
 
 /** 시작·종료 일시만 연속 변경될 때 조회 요청 묶기(ms) — 정렬·타입은 즉시 조회 */
 const FROM_TO_DEBOUNCE_MS = 400;
-
-/** 대시보드 실시간 카드와 동일 — 실시간 조회 시 최근 1시간 구간 */
-const LIVE_WINDOW_MS = 60 * 60 * 1000;
 
 type PreparedTableRow = {
   id: string;
@@ -446,7 +444,7 @@ export function SensorReadingsDbPanel() {
 
   const fetchData = useCallback(async (opts?: {
     silent?: boolean;
-    /** true: 화면의 기간·타입·정렬 필터 무시, 최근 1시간·전체 타입·최신순 */
+    /** true: 화면의 기간·타입·정렬 필터 무시, 최근 N건·전체 타입 */
     live?: boolean;
   }) => {
     const silent = opts?.silent === true;
@@ -470,11 +468,7 @@ export function SensorReadingsDbPanel() {
     }
     const params = new URLSearchParams();
     if (live) {
-      params.set(
-        "from",
-        new Date(Date.now() - LIVE_WINDOW_MS).toISOString(),
-      );
-      params.set("to", new Date().toISOString());
+      params.set("limit", String(SENSOR_DASHBOARD_LIVE_LIMIT));
       params.set("sort", "recorded_at_desc");
       // types 생략 → API 가 본인 소유 전체 타입
     } else {
@@ -519,7 +513,7 @@ export function SensorReadingsDbPanel() {
         setError(null);
         if (live) {
           setNotice(
-            "최근 1시간·전체 센서 타입으로 조회했습니다. (위 필터는 그대로이며 적용되지 않았습니다)",
+            `최근 ${SENSOR_DASHBOARD_LIVE_LIMIT}개·전체 센서 타입으로 조회했습니다. (위 필터는 그대로이며 적용되지 않았습니다)`,
           );
         }
       };
@@ -645,7 +639,7 @@ export function SensorReadingsDbPanel() {
       </h2>
       <p className="text-muted-foreground mt-1 text-sm">
         시작·종료 일시와 센서 타입으로 필터한 뒤 「다시 조회」로 표를 갱신합니다. 「실시간 조회」는 필터와
-        관계없이 최근 1시간·전체 타입만 조회합니다. 차트는 대시보드 탭입니다.
+        관계없이 최근 {SENSOR_DASHBOARD_LIVE_LIMIT}개·전체 타입만 조회합니다. 차트는 대시보드 탭입니다.
       </p>
 
       <SensorReadingsDbFilterBlock

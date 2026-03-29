@@ -24,7 +24,14 @@ export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const fromParam = searchParams.get("from");
   const toParam = searchParams.get("to");
+  const limitParam = searchParams.get("limit");
   const typesParam = searchParams.get("types");
+  /** 최근 N건만(시간 구간 무시) — 대시보드 실시간 카드 등 */
+  const parsedLimit = limitParam ? Number.parseInt(limitParam, 10) : NaN;
+  const rowLimit =
+    Number.isFinite(parsedLimit) && parsedLimit > 0
+      ? Math.min(parsedLimit, 2000)
+      : null;
   /** 비어 있으면 본인 소유 전체 타입 — 있으면 해당 sensor_type 센서만 조회해 행·JSON 부담 감소 */
   const typesFilter = typesParam?.split(",").filter(Boolean) ?? [];
   // sort 생략 시 최신순 — 대시보드 차트용. DB 테이블 탭에서는 `sort` 쿼리로 전달 예정
@@ -46,6 +53,8 @@ export async function GET(request: Request) {
     : defaultFrom.toISOString();
   const toIso = toParam ? new Date(toParam).toISOString() : defaultTo.toISOString();
 
+  const useRowLimit = rowLimit !== null;
+
   let sensorsQuery = supabase
     .from("sensors")
     .select("id")
@@ -64,7 +73,7 @@ export async function GET(request: Request) {
     return NextResponse.json({ rows: [] as SensorReadingRow[] });
   }
 
-  // 시간 정렬은 DB에서 처리 — 메모리에서 O(n log n) 재정렬 생략(타입 필터는 순서 유지)
+  // limit 모드: 최신 N건(DB desc) — 시간 구간·sort 쿼리는 무시(차트용 시계열은 응답에서 과거→최신 정렬)
   let readingsQuery = supabase
     .from("sensor_readings")
     .select(
@@ -80,14 +89,21 @@ export async function GET(request: Request) {
       )
     `,
     )
-    .in("sensor_id", sensorIds)
-    .gte("recorded_at", fromIso)
-    .lte("recorded_at", toIso);
+    .in("sensor_id", sensorIds);
 
-  if (sort === "recorded_at_desc") {
-    readingsQuery = readingsQuery.order("recorded_at", { ascending: false });
-  } else if (sort === "recorded_at_asc") {
-    readingsQuery = readingsQuery.order("recorded_at", { ascending: true });
+  if (useRowLimit) {
+    readingsQuery = readingsQuery
+      .order("recorded_at", { ascending: false })
+      .limit(rowLimit!);
+  } else {
+    readingsQuery = readingsQuery
+      .gte("recorded_at", fromIso)
+      .lte("recorded_at", toIso);
+    if (sort === "recorded_at_desc") {
+      readingsQuery = readingsQuery.order("recorded_at", { ascending: false });
+    } else if (sort === "recorded_at_asc") {
+      readingsQuery = readingsQuery.order("recorded_at", { ascending: true });
+    }
   }
 
   const { data: readings, error: errRead } = await readingsQuery;
@@ -118,7 +134,12 @@ export async function GET(request: Request) {
   }
 
   let filtered = rows;
-  if (sort !== "recorded_at_desc" && sort !== "recorded_at_asc") {
+  if (useRowLimit) {
+    filtered.sort(
+      (a, b) =>
+        new Date(a.recorded_at).getTime() - new Date(b.recorded_at).getTime(),
+    );
+  } else if (sort !== "recorded_at_desc" && sort !== "recorded_at_asc") {
     filtered = sortReadingRows(filtered, sort);
   }
 
