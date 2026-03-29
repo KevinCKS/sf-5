@@ -1,0 +1,9 @@
+{
+  "name": "mqtt-board-simulator",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "dotenv": "^16.4.7",
+    "mqtt": "^5.15.1"
+  }
+}
