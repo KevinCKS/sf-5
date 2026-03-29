@@ -395,7 +395,7 @@ const ActuatorControlCard = memo(function ActuatorControlCard({
             <div className="flex min-h-[1.25rem] items-center">
               {actuatorStateBadge(disp.state, disp.variant, true)}
             </div>
-            <p className="text-muted-foreground/90 max-w-full overflow-x-auto font-mono text-[10px] leading-none tabular-nums whitespace-nowrap [scrollbar-width:none] sm:text-[11px]">
+            <p className="text-muted-foreground/90 w-full min-w-0 max-w-full overflow-x-auto font-mono text-[8px] leading-none tracking-tight tabular-nums whitespace-nowrap [scrollbar-width:none] sm:text-[9px]">
               {disp.timeLabel}
             </p>
           </>
