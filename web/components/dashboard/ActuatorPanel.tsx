@@ -17,7 +17,6 @@ import {
   History,
   Lightbulb,
   Loader2,
-  RefreshCw,
   Save,
   Send,
   Trash2,
@@ -446,7 +445,6 @@ export function ActuatorPanel({
   const [listError, setListError] = useState<string | null>(null);
   const [hwByKey, setHwByKey] = useState<Record<string, HwRow>>({});
   const [hwError, setHwError] = useState<string | null>(null);
-  const [loadingHw, setLoadingHw] = useState(showControls);
   /** 서버 발행 성공 직후 표시(보드 §6.3 보고 전까지). 보드 updated_at 이 명령 시각 이후면 DB 값 우선 */
   const [commandEchoByKey, setCommandEchoByKey] = useState<
     Record<string, { state: "ON" | "OFF"; atMs: number }>
@@ -454,7 +452,7 @@ export function ActuatorPanel({
   const [clearing, setClearing] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const [mqttSettingsHint, setMqttSettingsHint] = useState<string | null>(null);
-  /** 액추 ON/OFF 클릭 후 「상태 새로고침」「명령」 라벨 숨김 */
+  /** 액추 ON/OFF 클릭 후 「명령」 라벨 숨김 */
   const [hideActuatorAuxUi, setHideActuatorAuxUi] = useState(false);
   const { form: mqttForm, setForm: setMqttForm } = useMqttForm();
 
@@ -558,7 +556,6 @@ export function ActuatorPanel({
 
     if (!silent) {
       setHwError(null);
-      setLoadingHw(true);
     }
     try {
       const res = await fetch(
@@ -597,10 +594,6 @@ export function ActuatorPanel({
       if (ac.signal.aborted) return;
       setHwError("네트워크 오류가 발생했습니다.");
       setHwByKey({});
-    } finally {
-      if (seq === hwSeqRef.current && !silent) {
-        setLoadingHw(false);
-      }
     }
   }, []);
 
@@ -717,9 +710,6 @@ export function ActuatorPanel({
   /** 브라우저 MQTT 설정 저장(Sensor 카드와 같은 키) */
   const handleSaveMqttSettings = useCallback(() => {
     saveBrowserMqttSettings(mqttForm);
-    setMqttSettingsHint(
-      "이 브라우저에 저장했습니다. MQTT 연결을 끊었다가 다시 연결하면 §6.3 토픽이 적용됩니다.",
-    );
     setActionError(null);
   }, [mqttForm]);
 
@@ -730,10 +720,6 @@ export function ActuatorPanel({
       "저장값을 지웠습니다. env 기본값을 쓰려면 MQTT 연결을 다시 시도하세요.",
     );
   }, [setMqttForm]);
-
-  const onRefreshHardware = useCallback(() => {
-    void loadHardware();
-  }, [loadHardware]);
 
   const onClearHistoryClick = useCallback(() => {
     void clearHistory();
@@ -831,7 +817,7 @@ export function ActuatorPanel({
             />
           </div>
           <div className="space-y-2 sm:col-span-2">
-            <div className="text-foreground font-medium">액추에이터 발행 토픽</div>
+            <div className="text-foreground font-medium">명령 발행 토픽</div>
             <p className="text-muted-foreground text-[11px] leading-relaxed">
               PRD §6.2·서버 allowlist·해당 액추 키와 일치할 때만 유지됩니다.
             </p>
@@ -867,7 +853,7 @@ export function ActuatorPanel({
             </div>
           </div>
           <div className="space-y-2 sm:col-span-2">
-            <div className="text-foreground font-medium">액추에이터 상태 구독 토픽</div>
+            <div className="text-foreground font-medium">상태 구독 토픽</div>
             <p className="text-muted-foreground text-[11px] leading-relaxed">
               비우거나 잘못된 값은 저장 시 PRD 기본으로 맞춥니다.
             </p>
@@ -959,20 +945,6 @@ export function ActuatorPanel({
                 <Gauge className="size-3.5 shrink-0 text-primary/70" aria-hidden />
                 상태
               </h3>
-              {!hideActuatorAuxUi ? (
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="outline"
-                  disabled={loadingHw}
-                  aria-busy={loadingHw}
-                  onClick={onRefreshHardware}
-                  className="shrink-0"
-                >
-                  <RefreshCw className="h-4 w-4" aria-hidden />
-                  <span className="ml-1.5">상태 새로고침</span>
-                </Button>
-              ) : null}
             </div>
             <div
               className={cn(

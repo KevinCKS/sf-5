@@ -268,9 +268,6 @@ export function MqttBrowserProvider({ children }: { children: ReactNode }) {
 
   const handleSaveSettings = useCallback(() => {
     saveBrowserMqttSettings(formRef.current);
-    setHint(
-      "이 브라우저에 저장했습니다. 변경 적용을 위해 연결 끊기 후 다시 연결하세요.",
-    );
     if (status === "live") disconnect();
   }, [status, disconnect]);
 

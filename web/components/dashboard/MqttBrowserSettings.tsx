@@ -117,7 +117,7 @@ export function MqttBrowserSettingsBody() {
         </summary>
         <div className="mt-2 space-y-4">
           <div>
-            <div className="text-foreground font-medium">§6.2 명령 발행</div>
+            <div className="text-foreground font-medium">명령 발행 토픽</div>
             <p className="text-muted-foreground text-[11px] leading-relaxed">
               서버 allowlist·해당 액추 키와 일치할 때만 유지됩니다.
             </p>
@@ -153,7 +153,7 @@ export function MqttBrowserSettingsBody() {
             </div>
           </div>
           <div>
-            <div className="text-foreground font-medium">§6.3 액추에이터 상태 구독 토픽</div>
+            <div className="text-foreground font-medium">상태 구독 토픽</div>
             <p className="text-muted-foreground text-[11px] leading-relaxed">
               비우거나 잘못된 값은 저장 시 PRD 기본으로 맞춥니다.
             </p>

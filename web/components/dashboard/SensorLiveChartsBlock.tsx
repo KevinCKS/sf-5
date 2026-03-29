@@ -117,7 +117,7 @@ function renderLiveHeadDot(
   if (index !== opts.lastIdx || cx == null || cy == null || opts.lastIdx < 0) {
     return null;
   }
-  // 조금 아래로 이동 · 폭은 좁게 · 세로(꼭짓점~밑변)는 조금 더 길게
+  // 조금 아래로 이동 · 폭은 좁게 · 세로(꼭짓점~밑변)는 조금 더 길게 (기준 r 는 최신점 삼각형 크기)
   const dy = opts.compact ? 3 : 4;
   const r = opts.compact ? 6 : 9;
   const y = cy + dy;
