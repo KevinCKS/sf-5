@@ -14,8 +14,7 @@ const nextConfig: NextConfig = {
       "lucide-react",
       "recharts",
       "@base-ui/react",
-      "@supabase/supabase-js",
-      "@supabase/ssr",
+      // @supabase/* 는 Edge 미들웨어에서 쓰임 — optimizePackageImports 시 Vercel Edge 번들 오류 가능
       "clsx",
       "tailwind-merge",
       "class-variance-authority",
